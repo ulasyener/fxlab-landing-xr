@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '22';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '23';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -950,7 +950,7 @@ const tableViewP = panel({name:'table views',x:0,y:0,w:262,h:52,margin:8,parent:
     p.region(id,x,y,w,h,()=>setTableView(id));
   });
 }});
-tableViewP.mesh.rotation.x = -1.05;
+tableViewP.mesh.rotation.x = -1.05; tableViewP.mesh.visible = false;   // no TOP / FRONT / PERSP on the table: it stays level with the water, the user walks around it
 function setTableView(id){
   state.dioView = id; state.dioQ = null; state.dioYaw = id==='persp' ? (Math.abs(state.dioYaw)<.05 ? .6 : state.dioYaw) : 0;
   freeLift(); tableViewP.dirty = true;
@@ -1154,10 +1154,10 @@ function handGrabStart(s){
   deskGrid.updateMatrixWorld(); invGrid.copy(deskGrid.matrixWorld).invert(); pinchPoint(s,gp);
   const w = state.dioN*DESK.cell, c = deskItem.position;
   if (Math.abs(gp.x-c.x)>w/2+.04 || Math.abs(gp.z-c.z)>w/2+.04 || gp.y<-.03 || gp.y>w*1.2+.05) return false;
-  const turn = !!j['wrist']?.visible;
+  const turn = !!j['wrist']?.visible && !!j['middle-finger-metacarpal']?.visible;
   s.drag = {kind:'dioGrab',i:state.dioI,j:state.dioJ,n:state.dioN,off:[gp.x-c.x,gp.z-c.z],y0:gp.y,
-    turn, q0i:turn?handQ(s,new THREE.Quaternion()).invert():null, dq0:dio.quaternion.clone()};
-  if (turn) { state.dioQ = dio.quaternion.toArray(); freeLift(); tableViewP.dirty = true; }
+    turn, h0:turn?handYaw(s):0, yaw0:state.dioYaw||0};
+  state.dioQ = null; state.dioView = 'persp';
   return true;
 }
 function grabUpdate(s){
@@ -1165,8 +1165,8 @@ function grabUpdate(s){
   pinchPoint(s,gp); const dr = s.drag, n = state.dioN, x = gp.x-dr.off[0], z = gp.z-dr.off[1];
   dr.i = clampI(Math.round((x+DESK_W/2)/DESK.cell-n/2),n,DESK.cols); dr.j = clampI(Math.round((z+DESK_D/2)/DESK.cell-n/2),n,DESK.rows); dr.n = n;
   deskItem.userData.target.set(x,Math.max(0,Math.min(.2,gp.y-dr.y0))+.015,z);          // lifts a little in the hand
-  if (dr.turn && j['wrist']?.visible) {                                  // the diorama turns exactly as the hand turns, in every direction
-    const q = handQ(s,qH).multiply(dr.q0i).multiply(dr.dq0); state.dioQ = q.toArray(); dio.quaternion.copy(q); }
+  if (dr.turn && j['wrist']?.visible && j['middle-finger-metacarpal']?.visible) {   // turning the hand turns the diorama about the vertical only: it stays level with the water
+    state.dioYaw = dr.yaw0+wrapA(handYaw(s)-dr.h0); dio.quaternion.copy(tableTargetQ()); }
   showDrop(dr);
 }
 // two-hand scale: while one hand holds the diorama, pinch with the other and open / close the hands (1x steps of a cell)
