@@ -37,6 +37,7 @@ const rowOf = (o,c) => o.rows.find(r=>r.currency===c);
 const state = {
   horizon: HORIZONS.map(h=>h.id).find(h=>data[h]),
   currency: 'USD', hidden: false, scale: 1, desk: false, playing: true, allLinks: false,
+  dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true,
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
@@ -251,6 +252,15 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
     ctx.fillStyle = ink; for (const [a,b] of d) { ctx.beginPath(); ctx.arc(a,b,3,0,Math.PI*2); ctx.fill(); }
     text(ctx,on?'ALL LINKS':'SELECTED',x+48,cy+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
     p.region('links',x-6,y-8,w+12,h+16,()=>{ state.allLinks = !state.allLinks; p.dirty = true; }); }
+  // bring the diorama into the room: onto the table grid, and back into the window
+  { const x = 290, y = 14, w = 150, h = 34, on = state.dioOnTable, hot = p.hover==='table';
+    ctx.save(); if (hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = 12; }
+    rr(ctx,x,y,w,h,17); ctx.fillStyle = C.card; ctx.fill(); ctx.restore();
+    rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke();
+    const ink = hot ? C.pink : C.ink;
+    drawIcon(ctx,'desk',ink,x+22,y+h/2,18);
+    text(ctx,on?'BACK TO WINDOW':'PLACE ON TABLE',x+38,y+h/2+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
+    p.region('table',x-4,y-8,w+8,h+16,()=>{ state.dioOnTable ? dioToWindow() : dioToTable(); toast(state.dioOnTable?'Diorama on the table · pinch it to move, pull a corner to scale':'Diorama back in its window'); }); }
   cutWindow(ctx,441.5,103.5);
   rr(ctx,WIN.x-441.5,WIN.y-103.5,WIN.w,WIN.h,WIN.r); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
 }});
@@ -347,8 +357,8 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = dio.visible = !state.hidden; }],
-  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; place(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; place(); placeGrid(); toast('Back to the default layout'); }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -391,7 +401,7 @@ const winPlanesLocal = (()=>{ const l = (WIN.x-BW/2)*S, r = (WIN.x+WIN.w-BW/2)*S
           new THREE.Plane(new THREE.Vector3(0,0,-1),0), new THREE.Plane(new THREE.Vector3(0,0,1),WIN.depth)]; })();
 const winPlanes = winPlanesLocal.map(p=>p.clone());
 function updateWindowClip(){ board.updateMatrixWorld(); winPlanesLocal.forEach((p,i)=>winPlanes[i].copy(p).applyMatrix4(board.matrixWorld)); }
-function clipToWindow(root){ root.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = winPlanes; m.needsUpdate = true; } }); }
+function clipToWindow(root){ root.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = state.dioOnTable ? null : winPlanes; m.needsUpdate = true; } }); }
 function ringLine(r,y,color,opacity,dashed){
   const pts = []; for (let i=0;i<=128;i++){ const a = i/128*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(a)*r,y,Math.sin(a)*r)); }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -606,6 +616,7 @@ function along(d,out){                       // point at arc length d (monotone 
 const nA = new THREE.Vector3(), nB = new THREE.Vector3(), pt = [0,0,0];
 // highest diorama-local y that is still inside the window box at depth z (box ceiling and front opening, tilt included)
 function ceilAt(z){
+  if (state.dioOnTable) return .3;
   const a = dio.rotation.x, f = dio.scale.y, half = WIN.h*S/2/f, front = -dio.position.z/f;
   return Math.min((half+z*Math.sin(a))/Math.cos(a), (front-z*Math.cos(a))/Math.sin(a));
 }
@@ -686,6 +697,236 @@ for (const m of marbles) {
   }, undefined, err => console.warn('coin', m.cur, err));
 }
 
+// ---------------------------------------------------------------- 3D table workspace: wireframe grid, room scan, diorama on the table
+// Grid: 2 m × 1 m in real size, fixed 25 cm cells (8 × 4). Origin at the grid centre on the table surface,
+// x along the 2 m side, +z toward the user, y up. Each visualisation arrives one cell in size (1x) and
+// scales from its corner nodes in whole-cell steps.
+const DESK = {cols:8, rows:4, cell:.25, maxN:4, lineA:.16, borderA:.42, crossA:.5, glowR:.2, tableH:.74, ahead:.72};
+const DESK_W = DESK.cols*DESK.cell, DESK_D = DESK.rows*DESK.cell;
+const deskGrid = new THREE.Group(); deskGrid.name = 'table grid'; scene.add(deskGrid);
+const deskLines = new THREE.Group(); deskGrid.add(deskLines);      // what the GRID toggle hides
+const gridUniforms = {uHand0:{value:new THREE.Vector3(0,99,0)}, uHand1:{value:new THREE.Vector3(0,99,0)}, uTime:{value:0},
+  uBase:{value:new THREE.Color('#8fb0ff')}, uHot:{value:new THREE.Color(C.pink)}};
+function gridMaterial(){
+  return new THREE.ShaderMaterial({
+    uniforms:gridUniforms, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false,
+    vertexShader:`attribute float aA; varying float vA; varying vec3 vP;
+      void main(){ vA = aA; vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader:`uniform vec3 uHand0; uniform vec3 uHand1; uniform vec3 uBase; uniform vec3 uHot; uniform float uTime;
+      varying float vA; varying vec3 vP;
+      void main(){
+        float d = min(distance(vP,uHand0),distance(vP,uHand1));
+        float g = smoothstep(${DESK.glowR.toFixed(3)},0.,d);                // lines light up near the hand
+        float edge = smoothstep(0.,.12,min(${(DESK_W/2).toFixed(3)}-abs(vP.x),${(DESK_D/2).toFixed(3)}-abs(vP.z))+.06);
+        float a = vA*(.85+.15*sin(uTime*1.3+vP.x*3.1+vP.z*2.3))*edge + g*.55;
+        gl_FragColor = vec4(mix(uBase,uHot,g)*a,1.);
+      }`,
+  });
+}
+{ const pos = [], aA = [], seg = (x0,z0,x1,z1,a) => { pos.push(x0,0,z0,x1,0,z1); aA.push(a,a); };
+  const hx = DESK_W/2, hz = DESK_D/2;
+  for (let i=1;i<DESK.cols;i++) { const x = -hx+i*DESK.cell; seg(x,-hz,x,hz,DESK.lineA); }
+  for (let j=1;j<DESK.rows;j++) { const z = -hz+j*DESK.cell; seg(-hx,z,hx,z,DESK.lineA); }
+  seg(-hx,-hz,hx,-hz,DESK.borderA); seg(hx,-hz,hx,hz,DESK.borderA); seg(hx,hz,-hx,hz,DESK.borderA); seg(-hx,hz,-hx,-hz,DESK.borderA);
+  // small crosses on every intersection (node marks)
+  const k = .012;
+  for (let i=0;i<=DESK.cols;i++) for (let j=0;j<=DESK.rows;j++) { const x = -hx+i*DESK.cell, z = -hz+j*DESK.cell;
+    seg(x-k,z,x+k,z,DESK.crossA); seg(x,z-k,x,z+k,DESK.crossA); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('aA',new THREE.Float32BufferAttribute(aA,1));
+  const lines = new THREE.LineSegments(g,gridMaterial()); lines.position.y = .001; lines.frustumCulled = false; deskLines.add(lines);
+}
+// target cells while something is carried
+const dropFill = new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,opacity:.1,
+  depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));
+dropFill.rotation.x = -Math.PI/2; dropFill.position.y = .002; dropFill.visible = false; deskGrid.add(dropFill);
+const dropEdge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(1,1)),new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.8,toneMapped:false}));
+dropEdge.rotation.x = -Math.PI/2; dropEdge.position.y = .003; dropEdge.visible = false; deskGrid.add(dropEdge);
+
+// footprint of the diorama on the table: outline, a pinch surface to move it, corner nodes to scale it
+const deskItem = new THREE.Group(); deskItem.name = 'diorama on table'; deskGrid.add(deskItem);
+const itemEdge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(1,1)),new THREE.LineBasicMaterial({color:'#b9c9ff',transparent:true,opacity:.45,toneMapped:false}));
+itemEdge.rotation.x = -Math.PI/2; itemEdge.position.y = .003; deskItem.add(itemEdge);
+const itemPad = new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({visible:false}));
+itemPad.rotation.x = -Math.PI/2; itemPad.position.y = .004; itemPad.userData.kind = 'dioMove'; deskItem.add(itemPad);
+const corners = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz])=>{
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(.009,16,10),new THREE.MeshBasicMaterial({color:'#fff3ff',toneMapped:false}));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:C.pink,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+  glow.scale.setScalar(.05); ball.add(glow);
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,10,8),new THREE.MeshBasicMaterial({visible:false}));
+  hit.userData.kind = 'dioScale'; hit.userData.corner = [sx,sz]; ball.add(hit);
+  deskItem.add(ball); return {ball,glow,hit,sx,sz};
+});
+const holder3D = new THREE.Group(); deskItem.add(holder3D);           // the diorama is re-parented here
+deskItem.visible = false;
+
+const DIO_FOOT = .40, DIO_LIFT = .2;                                     // diorama width incl. halos, and depth below the water (dio units)
+const dioWindowPose = {pos:dio.position.clone(), rotX:dio.rotation.x, scale:dio.scale.x};
+const cellCentre = (i,n) => (i+n/2)*DESK.cell;
+function layoutDeskItem(i,j,n,instant){
+  const x = cellCentre(i,n)-DESK_W/2, z = cellCentre(j,n)-DESK_D/2, w = n*DESK.cell;
+  deskItem.userData.target = new THREE.Vector3(x,0,z); if (instant) deskItem.position.set(x,0,z);
+  itemEdge.scale.set(w*.98,w*.98,1); itemPad.scale.set(w,w,1);
+  for (const c of corners) c.ball.position.set(c.sx*w/2,.006,c.sz*w/2);
+  const s = w/DIO_FOOT; dio.scale.setScalar(s); dio.position.set(0,DIO_LIFT*s,0);
+}
+function setDioClip(on){ dio.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = on ? winPlanes : null; m.needsUpdate = true; } }); }
+function dioToTable(){
+  state.dioOnTable = true; deskItem.visible = true; holder3D.add(dio); dio.rotation.set(0,0,0);
+  const n = Math.min(DESK.maxN,state.dioN||1);
+  state.dioN = n; state.dioI = Math.min(DESK.cols-n,state.dioI ?? Math.floor((DESK.cols-n)/2)); state.dioJ = Math.min(DESK.rows-n,state.dioJ ?? DESK.rows-n);
+  layoutDeskItem(state.dioI,state.dioJ,n,true); setDioClip(false); dioCardP.dirty = true;
+}
+function dioToWindow(){
+  state.dioOnTable = false; deskItem.visible = false; board.add(dio);
+  dio.position.copy(dioWindowPose.pos); dio.rotation.set(dioWindowPose.rotX,0,0); dio.scale.setScalar(dioWindowPose.scale);
+  setDioClip(true); dioCardP.dirty = true;
+}
+
+// grid controls: a small strip at the near-left corner, tilted toward the user
+const deskCtlP = panel({name:'grid controls',x:0,y:0,w:250,h:52,margin:8,parent:deskGrid,z:0,draw(ctx,p){
+  rr(ctx,0,0,250,52,26); ctx.fillStyle = 'rgba(35,32,66,.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+  [['grid','GRID',state.grid!==false],['room','ROOM',state.room!==false]].forEach(([id,label,on],k)=>{
+    const x = 10+k*120, y = 9, w = 110, h = 34, hot = p.hover===id;
+    ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?14:8; }
+    rr(ctx,x,y,w,h,17); ctx.fillStyle = on ? C.pink : C.card; ctx.fill(); ctx.restore();
+    if (!on) { rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke(); }
+    text(ctx,label,x+w/2,y+h/2+1,{font:'800 13px Manrope',color:on?C.dark:(hot?C.pink:C.ink),align:'center',ls:'.5px'});
+    p.region(id,x,y,w,h,()=>{ state[id] = !(state[id]!==false); applyDeskToggles(); p.dirty = true; });
+  });
+}});
+deskCtlP.mesh.position.set(-DESK_W/2+.135,.02,DESK_D/2+.05); deskCtlP.mesh.rotation.x = -1.05;
+function applyDeskToggles(){ deskLines.visible = state.grid!==false; roomGroup.visible = state.room!==false; }
+
+// room scan: Quest's scene mesh (mesh-detection) or, without it, detected plane outlines — thin light edges
+const roomGroup = new THREE.Group(); roomGroup.name = 'room wireframe'; scene.add(roomGroup);
+const roomMat = new THREE.LineBasicMaterial({color:'#8f9fe0',transparent:true,opacity:.22,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
+const roomItems = new Map();
+function roomLines(key,changed,build){
+  let it = roomItems.get(key);
+  if (!it || it.changed!==changed) {
+    if (it) { roomGroup.remove(it.lines); it.lines.geometry.dispose(); }
+    const lines = new THREE.LineSegments(build(),roomMat); lines.matrixAutoUpdate = false; lines.frustumCulled = false;
+    roomGroup.add(lines); it = {lines,changed}; roomItems.set(key,it);
+  }
+  it.seen = true; return it.lines;
+}
+let tablePlane = null;
+function updateRoom(frame){
+  const ref = renderer.xr.getReferenceSpace(); if (!frame || !ref) return;
+  for (const it of roomItems.values()) it.seen = false;
+  const meshes = frame.detectedMeshes;
+  if (meshes && meshes.size) for (const m of meshes) {
+    const lines = roomLines(m,m.lastChangedTime,()=>{ const g = new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(m.vertices),3)); g.setIndex(new THREE.BufferAttribute(new Uint32Array(m.indices),1));
+      const e = new THREE.EdgesGeometry(g,28); g.dispose(); return e; });
+    const pose = frame.getPose(m.meshSpace,ref); if (pose) lines.matrix.fromArray(pose.transform.matrix);
+  }
+  tablePlane = null; let best = 1e9;
+  const head = renderer.xr.getCamera().getWorldPosition(new THREE.Vector3());
+  if (frame.detectedPlanes) for (const pl of frame.detectedPlanes) {
+    const pose = frame.getPose(pl.planeSpace,ref); if (!pose) continue;
+    if (!(meshes && meshes.size)) {
+      const lines = roomLines(pl,pl.lastChangedTime,()=>{ const pts = [];
+        pl.polygon.forEach((p,i,arr)=>{ const q = arr[(i+1)%arr.length]; pts.push(p.x,p.y,p.z,q.x,q.y,q.z); });
+        return new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(pts,3)); });
+      lines.matrix.fromArray(pose.transform.matrix);
+    }
+    const p = pose.transform.position, label = pl.semanticLabel;
+    const tableLike = label==='table' || (pl.orientation==='horizontal' && p.y>.45 && p.y<1.15 && label!=='floor' && label!=='ceiling');
+    if (!tableLike) continue;
+    const d = Math.hypot(p.x-head.x,p.z-head.z) - (label==='table'?.5:0);   // prefer labelled tables
+    if (d<best && d<2.5) { best = d; tablePlane = {pl,pose}; }
+  }
+  for (const [k,it] of roomItems) if (!it.seen) { roomGroup.remove(it.lines); it.lines.geometry.dispose(); roomItems.delete(k); }
+}
+// put the grid on the detected table, or at table height in front of the user
+let gridOnTable = false, gridPlacedAt = 0;
+function placeGrid(){
+  const xrCam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const head = xrCam.getWorldPosition(new THREE.Vector3());
+  const dir = new THREE.Vector3(0,0,-1).applyQuaternion(xrCam.getWorldQuaternion(new THREE.Quaternion())); dir.y = 0;
+  if (dir.lengthSq()<1e-4) dir.set(0,0,-1); dir.normalize();
+  if (tablePlane) {
+    const m = new THREE.Matrix4().fromArray(tablePlane.pose.transform.matrix), c = new THREE.Vector3();
+    for (const p of tablePlane.pl.polygon) c.x += p.x/tablePlane.pl.polygon.length, c.z += p.z/tablePlane.pl.polygon.length;
+    c.applyMatrix4(m); deskGrid.position.set(c.x,c.y+.002,c.z);
+    const toUser = new THREE.Vector3(head.x-c.x,0,head.z-c.z); deskGrid.rotation.set(0,Math.atan2(toUser.x,toUser.z),0);
+    gridOnTable = true;
+  } else if (renderer.xr.isPresenting) {
+    deskGrid.position.copy(head).addScaledVector(dir,DESK.ahead); deskGrid.position.y = DESK.tableH;
+    deskGrid.rotation.set(0,Math.atan2(-dir.x,-dir.z),0); gridOnTable = false;
+  } else { deskGrid.position.set(0,1.0,.62); deskGrid.rotation.set(0,0,0); gridOnTable = false; }   // desktop preview
+  gridPlacedAt = performance.now();
+}
+placeGrid();
+
+// carrying: ray → grid plane → cells
+const invGrid = new THREE.Matrix4(), rO = new THREE.Vector3(), rD = new THREE.Vector3();
+function rayOnGrid(o,d){
+  deskGrid.updateMatrixWorld(); invGrid.copy(deskGrid.matrixWorld).invert();
+  rO.copy(o).applyMatrix4(invGrid); rD.copy(d).transformDirection(invGrid);
+  if (Math.abs(rD.y)<1e-4) return null; const t = -rO.y/rD.y; if (t<0) return null;
+  return rO.clone().addScaledVector(rD,t);
+}
+const clampI = (v,n,max) => Math.max(0,Math.min(max-n,v));
+function dragUpdate(s,o,d){
+  const p = rayOnGrid(o,d); if (!p) return;
+  const dr = s.drag;
+  if (dr.kind==='dioMove') {
+    const n = state.dioN;
+    dr.i = clampI(Math.round((p.x+DESK_W/2)/DESK.cell-n/2),n,DESK.cols); dr.j = clampI(Math.round((p.z+DESK_D/2)/DESK.cell-n/2),n,DESK.rows); dr.n = n;
+    deskItem.userData.target.set(p.x,0,p.z);                                  // follows the hand, snaps on release
+  } else {
+    // scale from a corner node, the opposite corner stays put
+    const ax = dr.anchor[0], az = dr.anchor[1];
+    const n = Math.max(1,Math.min(DESK.maxN,DESK.rows,Math.round(Math.max(Math.abs(p.x-ax),Math.abs(p.z-az))/DESK.cell)));
+    const x0 = dr.sx>0 ? ax : ax-n*DESK.cell, z0 = dr.sz>0 ? az : az-n*DESK.cell;
+    dr.n = n; dr.i = clampI(Math.round((x0+DESK_W/2)/DESK.cell),n,DESK.cols); dr.j = clampI(Math.round((z0+DESK_D/2)/DESK.cell),n,DESK.rows);
+    if (n!==state.dioN) { state.dioN = n; layoutDeskItem(dr.i,dr.j,n,false); }
+  }
+  const w = dr.n*DESK.cell; dropFill.visible = dropEdge.visible = true;
+  dropFill.scale.set(w,w,1); dropEdge.scale.set(w,w,1);
+  dropFill.position.x = dropEdge.position.x = cellCentre(dr.i,dr.n)-DESK_W/2; dropFill.position.z = dropEdge.position.z = cellCentre(dr.j,dr.n)-DESK_D/2;
+}
+function dragStart(s,hit){
+  if (hit.kind==='dioMove') s.drag = {kind:'dioMove',i:state.dioI,j:state.dioJ,n:state.dioN};
+  else { const [sx,sz] = hit.object.userData.corner, w = state.dioN*DESK.cell;
+    const cx = cellCentre(state.dioI,state.dioN)-DESK_W/2, cz = cellCentre(state.dioJ,state.dioN)-DESK_D/2;
+    s.drag = {kind:'dioScale',sx,sz,anchor:[cx-sx*w/2,cz-sz*w/2],i:state.dioI,j:state.dioJ,n:state.dioN}; }
+}
+function dragEnd(s){
+  const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
+  state.dioI = dr.i; state.dioJ = dr.j; state.dioN = dr.n; layoutDeskItem(dr.i,dr.j,dr.n,false);
+}
+const handLocal = new THREE.Vector3();
+function updateDesk(t,frame){
+  gridUniforms.uTime.value = t;
+  if (renderer.xr.isPresenting) {
+    updateRoom(frame);
+    if (tablePlane && !gridOnTable && performance.now()-gridPlacedAt<15000) placeGrid();   // a table showed up after entry
+  }
+  // hand / pointer glow, in grid space
+  deskGrid.updateMatrixWorld(); invGrid.copy(deskGrid.matrixWorld).invert();
+  const hs = [gridUniforms.uHand0.value,gridUniforms.uHand1.value]; hs.forEach(h=>h.set(0,99,0));
+  let k = 0;
+  for (const s of sources) {
+    if (k>1) break;
+    if (s.hand) { const j = s.hand.joints?.['index-finger-tip']; if (j && j.visible) { j.getWorldPosition(handLocal).applyMatrix4(invGrid); hs[k++].copy(handLocal); continue; } }
+    if (s.controller?.visible) { handLocal.setFromMatrixPosition(s.controller.matrixWorld).applyMatrix4(invGrid); if (handLocal.y<.3) hs[k++].copy(handLocal); }
+    else if (!s.controller && s.ray) { const p = rayOnGrid(s.ray.o,s.ray.d); if (p) hs[k++].copy(p); }
+  }
+  // drags
+  for (const s of sources) if (s.drag) {
+    if (s.controller) { if (!s.controller.visible) { dragEnd(s); continue; }
+      rO.setFromMatrixPosition(s.controller.matrixWorld); rD.set(0,0,-1).transformDirection(s.controller.matrixWorld); dragUpdate(s,rO.clone(),rD.clone()); }
+    else if (s.ray) dragUpdate(s,s.ray.o,s.ray.d);
+  }
+  if (deskItem.visible && deskItem.userData.target) deskItem.position.lerp(deskItem.userData.target,.25);
+  for (const c of corners) c.glow.material.opacity = .55+.35*Math.sin(t*3+c.sx+c.sz*2);
+}
+applyDeskToggles(); if (state.dioOnTable) dioToTable();
+
 // ---------------------------------------------------------------- state changes
 function setHorizon(h){ if (!data[h]) return; state.horizon = h; rebuildLoop(); [horizonP,timelineP,dashP].forEach(p=>p.dirty=true); }
 function setCurrency(c){ state.currency = c; dashP.dirty = true; }
@@ -712,11 +953,13 @@ function place(){
 const raycaster = new THREE.Raycaster();
 const holePanels = new Set(['board','drop CHARTS','diorama card']);
 function targets(){ const list = []; for (const p of panels) if (p.mesh.visible && p.mesh.parent.visible) list.push(p.mesh);
-  if (dio.visible && board.visible) for (const m of marbles) list.push(m.hit); return list; }
+  if (state.dioOnTable && dio.visible) { list.push(itemPad); for (const c of corners) list.push(c.hit); }
+  if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit); return list; }
 function pick(origin,dir){
   raycaster.set(origin,dir); raycaster.far = 6;
   for (const h of raycaster.intersectObjects(targets(),false)) {
     if (h.object.userData.currency) return {currency:h.object.userData.currency,point:h.point,distance:h.distance};
+    if (h.object.userData.kind) return {kind:h.object.userData.kind,object:h.object,point:h.point,distance:h.distance};
     const p = h.object.userData.panel, {lx,ly,region} = p.hit(h.uv);
     if (lx<0||ly<0||lx>p.w||ly>p.h) continue;           // transparent glow margin
     if (holePanels.has(p.name) && inWindow(p.x+lx,p.y+ly)) continue;   // looking through the diorama window
@@ -734,10 +977,12 @@ function setHover(source,hit){
 function press(source,hit){
   if (!hit) return;
   if (hit.currency) { setCurrency(hit.currency); return; }
+  if (hit.kind) { dragStart(source,hit); return; }
   if (hit.region) { source.pressed = {panel:hit.panel,id:hit.region.id}; hit.panel.press = hit.region.id; hit.panel.dirty = true; return; }
   if (source.controller) { source.controller.attach(boardRoot); source.grab = true; }   // grab the landing by any empty surface
 }
 function release(source,hit){
+  if (source.drag) { dragEnd(source); return; }
   if (source.grab) { scene.attach(boardRoot); const e = new THREE.Euler().setFromQuaternion(boardRoot.quaternion,'YXZ'); boardRoot.rotation.set(e.x,e.y,0,'YXZ'); source.grab = false; }
   const pr = source.pressed; source.pressed = null;
   if (!pr) return;
@@ -762,10 +1007,11 @@ for (let i=0;i<2;i++){
 const mouse = {hover:null,pressed:null,hit:null,controller:null}; sources.push(mouse);
 const ndc = new THREE.Vector2();
 function mousePick(e){ ndc.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1); raycaster.setFromCamera(ndc,camera);
+  mouse.ray = {o:raycaster.ray.origin.clone(),d:raycaster.ray.direction.clone()};
   return pick(raycaster.ray.origin.clone(),raycaster.ray.direction.clone()); }
 renderer.domElement.addEventListener('pointermove',e=>{ mouse.hit = mousePick(e); setHover(mouse,mouse.hit);
-  renderer.domElement.style.cursor = mouse.hit?.region||mouse.hit?.currency ? 'pointer' : ''; });
-renderer.domElement.addEventListener('pointerdown',e=>{ mouse.hit = mousePick(e); if (mouse.hit?.region||mouse.hit?.currency) { orbit.enabled = false; press(mouse,mouse.hit); } });
+  renderer.domElement.style.cursor = mouse.drag ? 'grabbing' : mouse.hit?.kind ? 'grab' : mouse.hit?.region||mouse.hit?.currency ? 'pointer' : ''; });
+renderer.domElement.addEventListener('pointerdown',e=>{ mouse.hit = mousePick(e); if (mouse.hit?.region||mouse.hit?.currency||mouse.hit?.kind) { orbit.enabled = false; press(mouse,mouse.hit); } });
 addEventListener('pointerup',e=>{ mouse.hit = mousePick(e); release(mouse,mouse.hit); orbit.enabled = true; });
 
 const tipPos = new THREE.Vector3(), local = new THREE.Vector3(), orig = new THREE.Vector3(), dirV = new THREE.Vector3();
@@ -776,7 +1022,7 @@ function updateXRInput(){
     // pinch-ray
     if (active) {
       orig.setFromMatrixPosition(c.matrixWorld); dirV.set(0,0,-1).transformDirection(c.matrixWorld);
-      s.hit = s.grab ? null : pick(orig,dirV);
+      s.hit = s.grab||s.drag ? null : pick(orig,dirV);
       const len = s.hit ? s.hit.distance : .6;
       s.ray.scale.z = len; s.cursor.visible = !!s.hit; if (s.hit) s.cursor.position.copy(s.hit.point);
     } else { s.hit = null; s.cursor.visible = false; }
@@ -785,7 +1031,7 @@ function updateXRInput(){
     if (!j || !j.visible) { s.tip.visible = false; setHover(s,active ? s.hit : null); continue; }
     j.getWorldPosition(tipPos); s.tip.position.copy(tipPos);
     let best = null;
-    for (const m of marbles) if (board.visible && m.hit.getWorldPosition(local).distanceTo(tipPos)<.022) best = {currency:m.cur,touch:true};
+    for (const m of marbles) if ((board.visible||state.dioOnTable) && dio.visible && m.hit.getWorldPosition(local).distanceTo(tipPos)<.022) best = {currency:m.cur,touch:true};
     if (!best) for (const p of panels) {
       if (!p.mesh.visible || !p.mesh.parent.visible || !p.regions.length || p.name==='toast') continue;
       p.mesh.worldToLocal(local.copy(tipPos));
@@ -808,11 +1054,12 @@ function updateXRInput(){
 // ---------------------------------------------------------------- session
 let needsPlace = 0;
 renderer.xr.addEventListener('sessionstart',()=>{ scene.background = null; renderer.setClearAlpha(0); needsPlace = 12; });
-renderer.xr.addEventListener('sessionend',()=>{ scene.background = desktopBg; boardRoot.position.set(0,1.4,0); boardRoot.rotation.set(0,0,0); });
+renderer.xr.addEventListener('sessionend',()=>{ scene.background = desktopBg; boardRoot.position.set(0,1.4,0); boardRoot.rotation.set(0,0,0);
+  for (const it of roomItems.values()) { roomGroup.remove(it.lines); it.lines.geometry.dispose(); } roomItems.clear(); tablePlane = null; placeGrid(); });
 if (navigator.xr && await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false)) {
   enterBtn.disabled = false; enterBtn.textContent = 'Enter MR';
   enterBtn.onclick = async () => {
-    try { const session = await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['local-floor'],optionalFeatures:['hand-tracking']});
+    try { const session = await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['local-floor'],optionalFeatures:['hand-tracking','plane-detection','mesh-detection']});
       await renderer.xr.setSession(session); }
     catch (e) { statusEl.textContent = 'MR could not start: '+e.message; }
   };
@@ -827,11 +1074,12 @@ addEventListener('resize',()=>{ camera.aspect = innerWidth/innerHeight; camera.u
 boardRoot.scale.setScalar(state.scale);
 
 // ---------------------------------------------------------------- frame loop
-renderer.setAnimationLoop((now)=>{
+renderer.setAnimationLoop((now,frame)=>{
   const t = now/1000;
-  if (needsPlace && renderer.xr.isPresenting && --needsPlace===0) place();
+  if (needsPlace && renderer.xr.isPresenting && --needsPlace===0) { place(); placeGrid(); }
   updateXRInput();
   updateDiorama(t);
+  updateDesk(t,frame);
   const minute = new Date().getMinutes()+':'+new Date().getDate();
   if (minute!==lastMinute) { lastMinute = minute; clocksP.dirty = dateP.dirty = newsP.dirty = true; }
   if (toastMsg && now>toastUntil) { toastMsg = ''; toastP.mesh.visible = false; }
