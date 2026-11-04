@@ -428,7 +428,7 @@ const additivePoints = (size,n) => {
 // inner = commercial (hedgers), middle = noncommercial (speculators), outer = nonreportable (small traders)
 // count ← |net| share of open interest · flow ← sign of net (long out / short in) · speed ← weekly change of net
 // overall radius ← open interest (log, relative to the other currencies) · brightness ← 52-week percentile extremity
-const HALO = {r:[.032,.043,.055], spread:.0055, min:50, max:320, size:.0042, glow:1.25, swirl:.25};
+const HALO = {r:[.026,.0300,.034], spread:.0028, min:150, max:460, size:.0052, glow:2.4, swirl:.6, rim:1.1, rimR:.037};
 const COT_GROUPS = ['commercial','noncommercial','nonreportable'];
 const cotOf = (() => {
   const src = Object.values(data).find(d=>d.contexts?.cot)?.contexts.cot || [], out = {};
@@ -449,6 +449,27 @@ const cotOf = (() => {
   for (const c of Object.values(out)) c.oiN = hi>lo ? (Math.log(c.oi)-lo)/(hi-lo) : .5;
   return cur => out[cur] || null;
 })();
+function marbleRimMaterial(){
+  // additive fresnel shell: transparent in the middle (the coin stays visible), glowing toward the silhouette
+  return new THREE.ShaderMaterial({
+    uniforms:{uColor:{value:new THREE.Color('#9cbcff')}, uStrength:{value:1}},
+    vertexShader:`#include <clipping_planes_pars_vertex>
+      varying vec3 vN; varying vec3 vV;
+      void main(){ vec4 mvPosition = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = normalize(-mvPosition.xyz);
+        gl_Position = projectionMatrix*mvPosition;
+        #include <clipping_planes_vertex>
+      }`,
+    fragmentShader:`#include <clipping_planes_pars_fragment>
+      uniform vec3 uColor; uniform float uStrength; varying vec3 vN; varying vec3 vV;
+      void main(){
+        #include <clipping_planes_fragment>
+        float f = 1.-abs(dot(normalize(vN),normalize(vV)));
+        float a = pow(f,2.2)*.9+pow(f,7.)*1.4;
+        gl_FragColor = vec4(uColor*a*uStrength,1.);
+      }`,
+    transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, clipping:true, toneMapped:false,
+  });
+}
 function makeHalo(cur){
   const cot = cotOf(cur), shells = [];
   let total = 0;
@@ -456,7 +477,7 @@ function makeHalo(cur){
     const g = cot?.groups[k], share = g ? Math.min(1,Math.abs(g.pctOi)/50) : .15;
     const n = Math.round(HALO.min+(HALO.max-HALO.min)*share);
     shells.push({id, n, start:total, dir: g ? Math.sign(g.net)||1 : 1,
-      speed: g ? .12+.9*Math.min(1,Math.abs(g.change)/.04) : .12, r:HALO.r[k]}); total += n;
+      speed: g ? .35+1.6*Math.min(1,Math.abs(g.change)/.04) : .35, r:HALO.r[k]}); total += n;
   });
   const pts = additivePoints(HALO.size,total);
   const dirs = new Float32Array(total*3), phase = new Float32Array(total);
@@ -466,7 +487,9 @@ function makeHalo(cur){
   }
   pts.geometry.setDrawRange(0,total);
   const ext = cot ? Math.max(0,(Math.abs(cot.p52-50)-35)/15) : 0;   // 0 inside 15–85 %, 1 at the extremes
-  return {pts, shells, dirs, phase, total, size: cot ? .85+.3*cot.oiN : .9, bright:1+ext*.9, tight:1-ext*.4};
+  const size = cot ? .85+.3*cot.oiN : .9;
+  const rim = new THREE.Mesh(new THREE.SphereGeometry(HALO.rimR*size,48,24),marbleRimMaterial());   // glass-marble edge glow
+  return {pts, rim, shells, dirs, phase, total, size, bright:1+ext*.9, tight:1-ext*.4};
 }
 const marbles = CURRENCIES.map((cur,i)=>{
   const a = -Math.PI/2+i*Math.PI/4, x = Math.cos(a)*DIO.R*.78, z = Math.sin(a)*DIO.R*.78;
@@ -477,8 +500,8 @@ const marbles = CURRENCIES.map((cur,i)=>{
   const spin = new THREE.Group(); ball.add(spin);                                                // coin turns on its vertical axis
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false}));
   hit.userData.currency = cur; ball.add(hit);
-  const halo = makeHalo(cur); ball.add(halo.pts);
-  const sel = new THREE.Mesh(new THREE.TorusGeometry(.062,.0012,8,96),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,toneMapped:false}));
+  const halo = makeHalo(cur); ball.add(halo.pts); ball.add(halo.rim);
+  const sel = new THREE.Mesh(new THREE.TorusGeometry(.046,.0012,8,96),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,toneMapped:false}));
   sel.rotation.x = Math.PI/2; ball.add(sel);
   const n = 14, pos = new Float32Array(n*3);
   const column = new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(pos,3)),
@@ -491,8 +514,8 @@ const zAt = (o,cur) => { const r = o && rowOf(o,cur); return r ? Math.max(-DIO.c
 // ---- links: particle cables from the selected coin's halo to the others (or all pairs)
 // route: up from a node on the outer halo shell, across in x, across in z, down to the target node — soft rounded corners
 // flow ← direction weak → strong, speed and density ← strength gap · breathing ← speculator CoT positioning gap
-const LINK = {rise:.012, riseLen:.03, lane:.03, ceilGap:.012, round:.016, bead:.0026, beadSize:.0034, flowSize:.0068, glow:.95,
-              maxBeads:320, maxFlow:36, nodeLift:.7};
+const LINK = {rise:.012, riseLen:.03, lane:.03, ceilGap:.012, round:.016, bead:.0026, beadSize:.0042, flowSize:.0095, glow:1.8, sway:.0016,
+              maxBeads:320, maxFlow:56, nodeLift:.7};
 const pairs = []; for (let a=0;a<8;a++) for (let b=a+1;b<8;b++) pairs.push([a,b]);
 const linkBeads = additivePoints(LINK.beadSize,pairs.length*LINK.maxBeads); dio.add(linkBeads);
 const linkFlow = additivePoints(LINK.flowSize,pairs.length*(LINK.maxFlow+2)); dio.add(linkFlow);
@@ -528,6 +551,8 @@ function updateHalo(m,t,dt,col){
   const h = m.halo, pos = h.pts.geometry.attributes.position.array, cl = h.pts.geometry.attributes.color.array;
   const sel = m.cur===state.currency ? 1.25 : 1;
   h.pts.rotation.y = t*HALO.swirl+m.phase; h.pts.rotation.z = Math.sin(t*.3+m.phase)*.25;
+  h.rim.material.uniforms.uColor.value.copy(col).lerp(PINK,.2);
+  h.rim.material.uniforms.uStrength.value = HALO.rim*h.bright*sel*(.85+.15*Math.sin(t*2.2+m.phase));
   h.shells.forEach((s,k)=>{
     // shell colour: inner whiter, outer carries the up/down tint
     tmpCol.copy(col).lerp(PINK,k===1?.25:0).lerp(new THREE.Color('#ffffff'),k===0?.45:k===1?.15:0);
@@ -538,7 +563,7 @@ function updateHalo(m,t,dt,col){
       const u = h.phase[i], rr = R+spread*(s.dir>0 ? u : 1-u)-spread*.5;   // long: drift outward · short: drift inward
       const wob = 1+.06*Math.sin(t*1.7+i*.37);
       pos[i*3] = h.dirs[i*3]*rr*wob; pos[i*3+1] = h.dirs[i*3+1]*rr*wob; pos[i*3+2] = h.dirs[i*3+2]*rr*wob;
-      const a = Math.sin(Math.PI*u)*(.55+.45*Math.sin(t*3+i))*HALO.glow*h.bright*sel;   // fade in and out along the drift
+      const a = (.25+.75*Math.sin(Math.PI*u))*(.6+.4*Math.sin(t*5+i))*HALO.glow*h.bright*sel;   // fade in and out along the drift
       cl[i*3] = tmpCol.r*a; cl[i*3+1] = tmpCol.g*a; cl[i*3+2] = tmpCol.b*a;
     }
   });
@@ -613,22 +638,25 @@ function updateLinks(t){
     const nBeads = Math.min(LINK.maxBeads,Math.floor(len/LINK.bead));
     seg = 0;
     for (let j=0;j<nBeads;j++){
-      along(j*LINK.bead,pt); const jj = j*3, J = .0012;
-      bp[nb*3] = pt[0]+beadJitter[jj]*J; bp[nb*3+1] = pt[1]+beadJitter[jj+1]*J; bp[nb*3+2] = pt[2]+beadJitter[jj+2]*J;
-      const s = j/nBeads, shimmer = .75+.25*Math.sin(t*4-s*18+pi);
+      along(j*LINK.bead,pt); const jj = j*3, J = .0012, s = j/nBeads;
+      const sw = LINK.sway*Math.sin(Math.PI*s)*(.6+cotGap);           // the cable undulates, more when positioning differs
+      bp[nb*3] = pt[0]+beadJitter[jj]*J+sw*Math.sin(t*2.6+s*16+pi); bp[nb*3+1] = pt[1]+beadJitter[jj+1]*J+sw*Math.sin(t*3.1+s*13+pi*.7);
+      bp[nb*3+2] = pt[2]+beadJitter[jj+2]*J+sw*Math.cos(t*2.3+s*15+pi);
+      const dirS = gap>=0 ? s : 1-s, packet = Math.pow(.5+.5*Math.sin(dirS*26-t*(3+5*gapN)),6);   // light packets running weak → strong
+      const shimmer = .45+.25*Math.sin(t*4-s*18+pi)+.9*packet;
       const a = LINK.glow*breath*shimmer*dim*(.35+.65*Math.sin(Math.PI*Math.min(1,s*1.15+.0)));
       bc[nb*3] = tmpCol.r*a; bc[nb*3+1] = tmpCol.g*a; bc[nb*3+2] = tmpCol.b*a; nb++;
     }
     // flowing particles: weak → strong, speed and count from the strength gap
     const forward = gap>=0;                                          // to is stronger → flow from → to
-    const nFlow = Math.round(3+(LINK.maxFlow-3)*gapN), v = .025+.07*gapN;
+    const nFlow = Math.round(8+(LINK.maxFlow-8)*gapN), v = .07+.16*gapN;
     seg = 0;
     const order = [];
     for (let j=0;j<nFlow;j++){ const u = ((j/nFlow)+t*v/Math.max(len,.01))%1; order.push(forward ? u : 1-u); }
     order.sort((x,y)=>x-y);
     for (const u of order){
       along(u*len,pt); fp[nf*3] = pt[0]; fp[nf*3+1] = pt[1]; fp[nf*3+2] = pt[2];
-      const a = Math.sin(Math.PI*u)*(.7+.3*breath)*dim*1.1;
+      const a = Math.sin(Math.PI*u)*(.7+.3*breath)*dim*1.9;
       fc[nf*3] = Math.min(1,tmpCol.r*a+.25*a); fc[nf*3+1] = Math.min(1,tmpCol.g*a+.25*a); fc[nf*3+2] = Math.min(1,tmpCol.b*a+.25*a); nf++;
     }
     // node balls on both halos
@@ -640,7 +668,7 @@ function updateLinks(t){
 }
 
 // ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
-const COIN = {dia:.04, spin:.6, env:.4};        // diameter in metres, spin rad/s, reflection strength
+const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   // diameter m, spin rad/s, reflections, roughness ×, metalness ×, aged warm tint
 const coinEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.04).texture;
 const ktx2 = new KTX2Loader().setTranscoderPath('./vendor/addons/libs/basis/').detectSupport(renderer);
 const gltfLoader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
@@ -652,7 +680,8 @@ for (const m of marbles) {
     const holder = new THREE.Group(); holder.add(coin);
     holder.scale.setScalar(COIN.dia/Math.max(size.x,size.z));
     holder.rotation.x = Math.PI/2;                            // coin lies flat in the file; stand it upright
-    coin.traverse(o => { if (o.isMesh) { o.material.envMap = coinEnv; o.material.envMapIntensity = COIN.env; } });
+    coin.traverse(o => { if (o.isMesh) { const mt = o.material; mt.envMap = coinEnv; mt.envMapIntensity = COIN.env;
+      mt.roughness = COIN.rough; mt.metalness = Math.min(mt.metalness,1)*COIN.metal; mt.color.multiply(new THREE.Color(COIN.tint)); } });
     m.spin.add(holder); m.coin = holder; m.sphere.visible = false; clipToWindow(holder);
   }, undefined, err => console.warn('coin', m.cur, err));
 }
