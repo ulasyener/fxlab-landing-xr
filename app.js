@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '23';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '24';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -41,6 +41,7 @@ const state = {
   currency: 'USD', hidden: false, scale: 1, desk: false, playing: true, allLinks: false,
   dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true, gridLift: 0, gridLinked: false, dioQ: null,
   dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
+  stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
@@ -367,19 +368,86 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
-  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; place(); placeGrid(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; place(); placeGrid(); toast('Back to the default layout'); }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
+  ['stick','joystick','Move the landing',()=>{ state.stick = !state.stick; stickP.mesh.visible = state.stick; toast(state.stick?'Joystick · push to move forward / back / sideways, slide to lift':'Joystick hidden'); }],
   ['exit','x-circle','Exit MR',()=>{ const s = renderer.xr.getSession(); s ? s.end() : toast('Not in MR'); }],
 ];
 const barP = panel({name:'bottom bar',x:410,y:860,w:700,h:104.6,margin:20,parent:fixed,z:.006,draw(ctx,p){
   ctx.save(); ctx.shadowColor = '#0b0a18'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 5;
   rr(ctx,0,0,700,104.6,52.3); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
   rr(ctx,0,0,700,104.6,52.3); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
-  BAR.forEach(([id,ic,,fn],i)=>circleButton(ctx,p,id,23.85+34.24+i*97.305,18.08+34.24,68.47,ic,fn,{iconSize:28.8}));
+  const step = (700-2*23.85-68.47)/(BAR.length-1);                     // equal spacing (A), whatever the number of buttons
+  BAR.forEach(([id,ic,,fn],i)=>circleButton(ctx,p,id,23.85+34.24+i*step,18.08+34.24,68.47,id==='stick'&&state.stick?'joystick-fill':ic,fn,
+    {iconSize:28.8,iconColor:id==='stick'&&state.stick?C.pink:C.ink}));
 }});
+// ---- joystick: move the landing like a mobile FPS thumbstick (left of the bottom bar, shown with the joystick button)
+// pad: up = away from you, down = toward you, sideways = left / right · slider: up / down · speed grows with the push, springs back on release
+const STICK = {speed:.35, lift:.25, dead:.12, curve:1.6, pad:{cx:68,cy:62.5,r:46,knob:17}, rail:{x:176,y0:20,y1:105,knob:13}};
+const stickP = panel({name:'joystick',x:168,y:850,w:222,h:125,margin:20,parent:fixed,z:.006,draw(ctx,p){
+  ctx.save(); ctx.shadowColor = '#0b0a18'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 5;
+  rr(ctx,0,0,222,125,44); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
+  rr(ctx,0,0,222,125,44); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+  const dr = sources.find(s=>s.drag?.kind==='stick')?.drag, v = dr?.v || [0,0,0];
+  // pad: light ring, dashed inner orbit, four chevrons, glowing knob
+  const {cx,cy,r,knob} = STICK.pad, padOn = dr?.part==='pad', padHot = p.hover==='pad';
+  ctx.save(); if (padOn||padHot) { ctx.shadowColor = C.pink; ctx.shadowBlur = padOn?18:10; }
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle = C.card; ctx.fill();
+  ctx.lineWidth = padOn||padHot ? 2 : 1.5; ctx.strokeStyle = padOn||padHot ? C.pink : '#4a4470'; ctx.stroke(); ctx.restore();
+  ctx.setLineDash([1.4,4]); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(167,162,201,.45)';
+  ctx.beginPath(); ctx.arc(cx,cy,r*.62,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+  [['caret-up',0,-1],['caret-down',0,1],['caret-left',-1,0],['caret-right',1,0]].forEach(([ic,dx,dy])=>{
+    const lit = padOn && (dx ? Math.sign(v[0])===dx && Math.abs(v[0])>STICK.dead : Math.sign(-v[1])===dy && Math.abs(v[1])>STICK.dead);
+    drawIcon(ctx,ic,lit?C.pink:C.dim,cx+dx*r*.8,cy+dy*r*.8,13); });
+  const kx = cx+v[0]*r*.62, ky = cy-v[1]*r*.62;
+  if (padOn) { ctx.strokeStyle = 'rgba(226,168,238,.55)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(kx,ky); ctx.stroke(); }
+  glowDot(ctx,kx,ky,padOn?knob*.62:knob*.5,padOn?'#fff3ff':'#d9d3f2',padOn?'rgba(231,168,240,.85)':'rgba(231,168,240,.35)');
+  p.region('pad',cx-r,cy-r,2*r,2*r,()=>{});
+  // lift rail
+  const {x,y0,y1} = STICK.rail, mid = (y0+y1)/2, railOn = dr?.part==='lift', railHot = p.hover==='lift';
+  ctx.save(); if (railOn||railHot) { ctx.shadowColor = C.pink; ctx.shadowBlur = railOn?16:9; }
+  rr(ctx,x-13,y0-8,26,y1-y0+16,13); ctx.fillStyle = C.card; ctx.fill();
+  ctx.lineWidth = railOn||railHot ? 2 : 1.5; ctx.strokeStyle = railOn||railHot ? C.pink : '#4a4470'; ctx.stroke(); ctx.restore();
+  ctx.fillStyle = '#4a4470'; ctx.fillRect(x-.5,y0+14,1,y1-y0-28);
+  drawIcon(ctx,'caret-up',railOn&&v[2]>STICK.dead?C.pink:C.dim,x,y0+5,12); drawIcon(ctx,'caret-down',railOn&&v[2]<-STICK.dead?C.pink:C.dim,x,y1-5,12);
+  const ly = mid-v[2]*(y1-y0)/2*.62;
+  glowDot(ctx,x,ly,railOn?8:6.5,railOn?'#fff3ff':'#d9d3f2',railOn?'rgba(231,168,240,.85)':'rgba(231,168,240,.35)');
+  p.region('lift',x-24,y0-10,48,y1-y0+20,()=>{});
+}});
+stickP.mesh.visible = state.stick;
+const stickPlane = new THREE.Plane(), stickHit = new THREE.Vector3(), stickN = new THREE.Vector3();
+function stickStart(s,part){
+  stickP.mesh.updateMatrixWorld();                                       // freeze the pad where it is: the landing moves away under the hand
+  stickN.set(0,0,1).transformDirection(stickP.mesh.matrixWorld);
+  stickPlane.setFromNormalAndCoplanarPoint(stickN,stickHit.setFromMatrixPosition(stickP.mesh.matrixWorld));
+  s.drag = {kind:'stick',part,plane:stickPlane.clone(),inv:stickP.mesh.matrixWorld.clone().invert(),v:[0,0,0]};
+  stickP.dirty = true;
+}
+function stickUpdate(s,o,d){
+  const dr = s.drag; raycaster.set(o,d); if (!raycaster.ray.intersectPlane(dr.plane,stickHit)) return;
+  stickFromLocal(dr,stickHit.applyMatrix4(dr.inv));
+}
+function stickFromLocal(dr,pt){                                          // panel-local metres → panel px → stick values
+  const px = pt.x/S+stickP.w/2, py = stickP.h/2-pt.y/S;
+  if (dr.part==='pad') { const {cx,cy,r} = STICK.pad; let x = (px-cx)/(r*.62), y = -(py-cy)/(r*.62); const l = Math.hypot(x,y); if (l>1) { x /= l; y /= l; } dr.v[0] = x; dr.v[1] = y; }
+  else { const {y0,y1} = STICK.rail; dr.v[2] = Math.max(-1,Math.min(1,-(py-(y0+y1)/2)/((y1-y0)/2*.62))); }
+  stickP.dirty = true;
+}
+const stickF = new THREE.Vector3(), stickR = new THREE.Vector3();
+const stickCurve = a => { const m = Math.abs(a); return m<STICK.dead ? 0 : Math.sign(a)*Math.pow((m-STICK.dead)/(1-STICK.dead),STICK.curve); };
+function updateStick(dt){
+  const dr = sources.find(s=>s.drag?.kind==='stick')?.drag; if (!dr || !dt) return;
+  const r = stickCurve(dr.v[0])*STICK.speed*dt, f = stickCurve(dr.v[1])*STICK.speed*dt, u = stickCurve(dr.v[2])*STICK.lift*dt;
+  if (!r && !f && !u) return;
+  stickF.set(0,0,-1).applyQuaternion(boardRoot.quaternion); stickF.y = 0;  // away from you, level
+  if (stickF.lengthSq()<1e-6) return; stickF.normalize(); stickR.set(-stickF.z,0,stickF.x);
+  boardRoot.position.addScaledVector(stickR,r).addScaledVector(stickF,f); boardRoot.position.y += u;
+  const o = state.boardOff || (state.boardOff = [0,0,0]); o[0] += r; o[1] += u; o[2] += f;
+}
+
 // FPS: bottom-right corner of the landing, aligned with the GAME column
 const FPS = {hist:new Array(120).fill(null), acc:0, n:0, t0:0, last:0, now:0, ms:0, target:60};   // 120 samples × 0.25 s = last 30 s
 function fpsTick(now){
@@ -1114,6 +1182,7 @@ function rayOnGrid(o,d){
 }
 const clampI = (v,n,max) => Math.max(0,Math.min(max-n,v));
 function dragUpdate(s,o,d){
+  if (s.drag.kind==='stick') { stickUpdate(s,o,d); return; }
   const p = rayOnGrid(o,d); if (!p) return;
   const dr = s.drag;
   if (dr.kind==='dioRotate') { const da = wrapA(ringAngle(p)-dr.a0);
@@ -1207,6 +1276,7 @@ function gridGrabEnd(s){
 let tablePlaneLock = false;
 function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
+  if (dr.kind==='stick') { stickP.dirty = true; return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
   state.dioI = dr.i; state.dioJ = dr.j; state.dioN = dr.n; layoutDeskItem(dr.i,dr.j,dr.n,false);
@@ -1230,6 +1300,7 @@ function updateDesk(t,frame){
   }
   // drags
   for (const s of sources) if (s.drag) {
+    if (s.drag.kind==='stick' && s.drag.poke) continue;                  // fingertip drag runs in updateXRInput
     if (s.drag.kind==='dioGrab') { grabUpdate(s); continue; }
     if (s.drag.kind==='dioPinchScale') { pinchScaleUpdate(s); continue; }
     if (s.drag.kind==='gridMove') { if (!s.controller?.visible) dragEnd(s); continue; }
@@ -1268,6 +1339,8 @@ function place(){
     boardRoot.position.copy(head).addScaledVector(dir,1.15); boardRoot.position.y = head.y-.1;
     boardRoot.rotation.set(0,yaw,0);
   }
+  const [r,u,f] = state.boardOff || [0,0,0];                             // where the joystick last left it
+  boardRoot.position.add(new THREE.Vector3(-dir.z,0,dir.x).multiplyScalar(r)).addScaledVector(dir,f); boardRoot.position.y += u;
 }
 
 // ---------------------------------------------------------------- input: pinch-ray, poke, mouse
@@ -1279,7 +1352,11 @@ function targets(){ const list = []; for (const p of panels) if (p.mesh.visible 
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit); return list; }
 function pick(origin,dir){
   raycaster.set(origin,dir); raycaster.far = 6;
-  for (const h of raycaster.intersectObjects(targets(),false)) {
+  const hits = raycaster.intersectObjects(targets(),false);
+  for (const h of hits) {
+    if (h.object.userData.kind==='gridMove') {                           // the grid's invisible edge must not swallow the bar or the joystick behind it
+      const f = hits.find(o=>o.object.parent===fixed && o.object.userData.panel?.hit(o.uv).region);
+      if (f) { const p = f.object.userData.panel, {region} = p.hit(f.uv); return {panel:p,region,point:f.point,distance:f.distance}; } }
     if (h.object.userData.currency) return {currency:h.object.userData.currency,point:h.point,distance:h.distance};
     if (h.object.userData.kind) return {kind:h.object.userData.kind,object:h.object,point:h.point,distance:h.distance};
     const p = h.object.userData.panel, {lx,ly,region} = p.hit(h.uv);
@@ -1303,6 +1380,7 @@ function press(source,hit){
   if (!hit) return;
   if (hit.currency) { setCurrency(hit.currency); return; }
   if (hit.kind) { dragStart(source,hit); return; }
+  if (hit.panel===stickP && (hit.region?.id==='pad' || hit.region?.id==='lift')) { stickStart(source,hit.region.id); return; }
   if (hit.region) { source.pressed = {panel:hit.panel,id:hit.region.id}; hit.panel.press = hit.region.id; hit.panel.dirty = true; return; }
   if (hit.panel?.mesh.parent===deskGrid) { dragStart(source,{kind:'gridMove'}); return; }        // empty part of the grid strip = grid handle
   if (source.controller) { source.controller.attach(boardRoot); source.grab = true; }   // grab the landing by any empty surface
@@ -1364,6 +1442,9 @@ function updateXRInput(){
     const j = s.hand.joints?.['index-finger-tip'];
     if (!j || !j.visible) { s.tip.visible = false; setHover(s,active ? s.hit : null); continue; }
     j.getWorldPosition(tipPos); s.tip.position.copy(tipPos);
+    if (s.drag?.kind==='stick' && s.drag.poke) {                          // finger on the joystick: follow the fingertip until it lifts off
+      local.copy(tipPos).applyMatrix4(s.drag.inv);
+      if (local.z>.03) dragEnd(s); else { stickFromLocal(s.drag,local); s.tip.visible = true; continue; } }
     let best = null;
     for (const m of marbles) if ((board.visible||state.dioOnTable) && dio.visible && m.hit.getWorldPosition(local).distanceTo(tipPos)<.022) best = {currency:m.cur,touch:true};
     if (!best) for (const p of panels) {
@@ -1378,6 +1459,7 @@ function updateXRInput(){
     setHover(s,best?.panel ? best : (active ? s.hit : null));
     if (best?.touch && !s.poke.latched) {
       s.poke.latched = true;
+      if (best.panel===stickP && (best.region.id==='pad' || best.region.id==='lift')) { stickStart(s,best.region.id); s.drag.poke = true; continue; }
       if (best.currency) setCurrency(best.currency);
       else { const bp = best.panel; bp.press = best.region.id; bp.dirty = true; best.region.onTap(); setTimeout(()=>{ bp.press = null; bp.dirty = true; },180); }
     }
@@ -1409,11 +1491,13 @@ addEventListener('resize',()=>{ camera.aspect = innerWidth/innerHeight; camera.u
 boardRoot.scale.setScalar(state.scale);
 
 // ---------------------------------------------------------------- frame loop
+let lastT = null;
 renderer.setAnimationLoop((now,frame)=>{
   const t = now/1000;
   fpsTick(now);
   if (needsPlace && renderer.xr.isPresenting && --needsPlace===0) { place(); placeGrid(); }
   updateXRInput();
+  updateStick(Math.min(.1,t-(lastT ?? t))); lastT = t;
   updateDiorama(t);
   updateDesk(t,frame);
   // diorama in the window only while the board hides its box; on the table it is always there and the window shows the 2D view
