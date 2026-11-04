@@ -3,6 +3,10 @@
 // Data: snapshots of Barış's public fxlab evidence API (data/5h.json, 1d.json, 1w.json), read-only.
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {KTX2Loader} from 'three/addons/loaders/KTX2Loader.js';
+import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
@@ -373,7 +377,9 @@ const marbles = CURRENCIES.map((cur,i)=>{
   const a = -Math.PI/2+i*Math.PI/4, x = Math.cos(a)*DIO.R*.78, z = Math.sin(a)*DIO.R*.78;
   const g = new THREE.Group(); g.position.set(x,0,z); dio.add(g);
   const mat = new THREE.MeshStandardMaterial({color:'#eef3ff',emissive:'#5d86ff',emissiveIntensity:.6,roughness:.2,metalness:.1});
-  const ball = new THREE.Mesh(new THREE.SphereGeometry(.0105,32,16),mat); g.add(ball);
+  const ball = new THREE.Group(); g.add(ball);
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(.0105,32,16),mat); ball.add(sphere);   // fallback until the coin loads
+  const spin = new THREE.Group(); ball.add(spin);                                                // coin turns on its vertical axis
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:UP,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:.9}));
   glow.scale.setScalar(.065); ball.add(glow);
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.028,12,8),new THREE.MeshBasicMaterial({visible:false}));
@@ -386,7 +392,7 @@ const marbles = CURRENCIES.map((cur,i)=>{
   const column = new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(pos,3)),
     new THREE.PointsMaterial({map:glowTex,color:UP,size:.006,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
   g.add(column);
-  return {cur,g,ball,mat,glow,hit,halo,sel,column,n,y:0};
+  return {cur,g,ball,sphere,spin,coin:null,phase:i*.7,mat,glow,hit,halo,sel,column,n,y:0};
 });
 const zAt = (o,cur) => { const r = o && rowOf(o,cur); return r ? Math.max(-DIO.clamp,Math.min(DIO.clamp,r.strengthZ)) : 0; };
 function updateDiorama(t){
@@ -401,11 +407,30 @@ function updateDiorama(t){
     const col = z>=0 ? UP : DOWN;
     m.glow.material.color.copy(col); m.halo.material.color.copy(col); m.column.material.color.copy(col);
     m.mat.emissive.set(z>=0?'#5d86ff':'#b5543f'); m.mat.color.set(z>=0?'#eef3ff':'#f2b0a2');
+    m.spin.rotation.y = t*COIN.spin+m.phase;
     m.sel.visible = m.cur===state.currency; m.sel.rotation.z = t*.8;
     const p = m.column.geometry.attributes.position;
     for (let j=0;j<m.n;j++){ const u = ((j/m.n)+t*.25)%1; p.setXYZ(j,0,y*u,0); }
     p.needsUpdate = true;
   }
+}
+
+// ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
+const COIN = {dia:.021, spin:.6, env:.45};      // diameter in metres (same as the old sphere), spin rad/s, reflection strength
+const coinEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.12).texture;
+const ktx2 = new KTX2Loader().setTranscoderPath('./vendor/addons/libs/basis/').detectSupport(renderer);
+const gltfLoader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+for (const m of marbles) {
+  gltfLoader.load(`assets/coins/${m.cur}.glb`, gltf => {
+    const coin = gltf.scene;
+    const box = new THREE.Box3().setFromObject(coin), size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+    coin.position.sub(mid);                                   // centre the mesh (the export carries an offset from 3ds Max)
+    const holder = new THREE.Group(); holder.add(coin);
+    holder.scale.setScalar(COIN.dia/Math.max(size.x,size.z));
+    holder.rotation.x = Math.PI/2;                            // coin lies flat in the file; stand it upright
+    coin.traverse(o => { if (o.isMesh) { o.material.envMap = coinEnv; o.material.envMapIntensity = COIN.env; } });
+    m.spin.add(holder); m.coin = holder; m.sphere.visible = false;
+  }, undefined, err => console.warn('coin', m.cur, err));
 }
 
 // ---------------------------------------------------------------- state changes
