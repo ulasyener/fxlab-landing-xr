@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '19';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '20';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -419,9 +419,9 @@ toastP.mesh.visible = false;
 function toast(msg,ms=3200){ toastMsg = msg; toastUntil = performance.now()+ms; toastP.mesh.visible = true; toastP.dirty = true; }
 
 // ---------------------------------------------------------------- 3D diorama (Barış's data)
-const DIO = {R:.17, U:.06, clamp:2.2};
+const DIO = {R:.17, U:.05, clamp:2.2};   // U: height of one strength unit (dio units) — ±clamp stays inside the half-full tank
 const dio = new THREE.Group(); dio.name = 'diorama';
-dio.position.set((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-WIN.depth/2); dio.rotation.x = .42; dio.scale.setScalar(WIN.fill); board.add(dio);   // inside the window box, tilted toward the viewer
+dio.position.set((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-WIN.depth/2); dio.scale.setScalar(WIN.fill); board.add(dio);   // inside the window box, level: the box is the aquarium, the water surface is zero
 // window box: open front, walls in the card's colours. It is only drawn while the board hides it completely
 // (seen through the window from the front); from the side or from behind it disappears together with the diorama.
 const winBox = new THREE.Group(); winBox.name = 'window box'; board.add(winBox);
@@ -469,16 +469,6 @@ function ringLine(r,y,color,opacity,dashed){
                      : new THREE.LineBasicMaterial({color,transparent:true,opacity});
   const l = new THREE.Line(geo,mat); if (dashed) l.computeLineDistances(); dio.add(l); return l;
 }
-{ const water = new THREE.Mesh(new THREE.CylinderGeometry(DIO.R,DIO.R,DIO.U*1.6,64,1,true),
-    new THREE.MeshBasicMaterial({color:'#4a63c8',transparent:true,opacity:.2,side:THREE.DoubleSide,depthWrite:false}));
-  water.position.y = -DIO.U*.8; dio.add(water);
-  const surf = new THREE.Mesh(new THREE.CircleGeometry(DIO.R,64),new THREE.MeshBasicMaterial({color:'#6d8fff',transparent:true,opacity:.18,side:THREE.DoubleSide,depthWrite:false}));
-  surf.rotation.x = -Math.PI/2; dio.add(surf);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(DIO.R,.0011,8,128),new THREE.MeshBasicMaterial({color:'#9cbcff',toneMapped:false}));
-  rim.rotation.x = Math.PI/2; dio.add(rim);
-  ringLine(DIO.R*.62,0,'#8fb3ff',.55); ringLine(DIO.R*.3,0,'#8fb3ff',.4);
-  ringLine(DIO.R,DIO.U,'#d79be6',.55,true); ringLine(DIO.R,-DIO.U,'#e0907e',.45,true);
-}
 function radialTexture(){ const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   const gr = g.createRadialGradient(32,32,0,32,32,32); gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.3,'rgba(255,255,255,.45)'); gr.addColorStop(1,'rgba(255,255,255,0)');
   g.fillStyle = gr; g.fillRect(0,0,64,64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
@@ -493,6 +483,78 @@ const additivePoints = (size,n) => {
     blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
   pts.frustumCulled = false; return pts;
 };
+
+// ---- water tank: the pool is a box half full of water; the surface is zero (above = stronger, below = weaker)
+// light for MR: one wavy surface (vertex waves, caustic shimmer, fresnel sheen, glowing meniscus), a depth-tinted body, a few rising bubbles
+// window: the tank IS the window box (level aquarium) · table: a glass cube on the diorama's footprint, always level — only the contents turn
+const WATER = {amp:.0022, speed:1, alpha:.24, deepAlpha:.5, caustic:.55, sheen:.9, edge:.9, bubbles:36, bubbleSize:.0032, bubbleRise:.025,
+               shallow:'#4d66d6', deep:'#100f33', glow:'#9cbcff', sheenCol:'#d9b8ff', glass:'#c99be0'};
+const waterUniforms = {uTime:{value:0}};
+function makeTank({w,h,d,unit=1,glass=false,bubbles=WATER.bubbles}){
+  // group origin = centre of the water surface; water fills -h/2…0, the glass box spans -h/2…+h/2
+  const g = new THREE.Group(); g.name = 'water tank';
+  const shared = {uTime:waterUniforms.uTime, uUnit:{value:unit}, uHalf:{value:new THREE.Vector2(w/2,d/2)}};
+  const surf = new THREE.Mesh(new THREE.PlaneGeometry(w,d,64,48).rotateX(-Math.PI/2), new THREE.ShaderMaterial({
+    uniforms:{...shared, uAmp:{value:WATER.amp/unit}, uAlpha:{value:WATER.alpha}, uCaustic:{value:WATER.caustic}, uSheen:{value:WATER.sheen},
+      uEdge:{value:WATER.edge}, uCol:{value:new THREE.Color(WATER.shallow)}, uGlow:{value:new THREE.Color(WATER.glow)}, uSheenCol:{value:new THREE.Color(WATER.sheenCol)}},
+    vertexShader:`uniform float uTime,uUnit,uAmp; varying vec3 vN,vW; varying vec2 vP,vL;
+      float wave(vec2 p,float t){ return sin(p.x*21.+t*1.3)*.5+sin(p.y*17.-t*1.1)*.35+sin((p.x+p.y)*29.+t*.8)*.25+sin((p.x-p.y)*41.-t*1.7)*.12; }
+      void main(){ vec2 p = position.xz*uUnit; float t = uTime, e = .004;
+        float h = wave(p,t), hx = wave(p+vec2(e,0.),t), hz = wave(p+vec2(0.,e),t);
+        vec3 pos = position; pos.y += h*uAmp;
+        vN = normalize(mat3(modelMatrix)*normalize(vec3(-(hx-h)*uAmp*uUnit/e,1.,-(hz-h)*uAmp*uUnit/e)));
+        vec4 wp = modelMatrix*vec4(pos,1.); vW = wp.xyz; vP = p; vL = position.xz;
+        gl_Position = projectionMatrix*viewMatrix*wp; }`,
+    fragmentShader:`uniform float uTime,uAlpha,uCaustic,uSheen,uEdge; uniform vec2 uHalf; uniform vec3 uCol,uGlow,uSheenCol; varying vec3 vN,vW; varying vec2 vP,vL;
+      void main(){ float t = uTime;
+        float c = sin(vP.x*38.+sin(vP.y*27.+t*.9)*1.7+t*.5)*sin(vP.y*33.+sin(vP.x*23.-t*.7)*1.7-t*.4);
+        float caustic = smoothstep(.72,1.,abs(c));
+        vec3 v = normalize(cameraPosition-vW); vec3 n = normalize(vN); if (!gl_FrontFacing) n = -n;
+        float fres = pow(1.-abs(dot(n,v)),3.);
+        vec2 q = uHalf-abs(vL); float edge = exp(-min(q.x,q.y)/(.012*max(uHalf.x,uHalf.y)/.3));
+        vec3 col = uCol*.55+uGlow*caustic*uCaustic+uSheenCol*fres*uSheen+uGlow*edge*uEdge;
+        float a = uAlpha+caustic*uCaustic*.35+fres*.35+edge*.6;
+        gl_FragColor = vec4(col,clamp(a,0.,.95)); }`,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide, toneMapped:false}));
+  surf.renderOrder = -2; g.add(surf);
+  // body: five faces of the water volume (no lid), tinted darker with depth, slow light shafts
+  const bodyGeo = new THREE.BoxGeometry(w,h/2,d); bodyGeo.translate(0,-h/4,0);
+  { const idx = bodyGeo.index.array, keep = []; for (let i=0;i<idx.length;i+=6) if (i!==12) keep.push(...idx.slice(i,i+6)); bodyGeo.setIndex(keep); }   // drop +y
+  const body = new THREE.Mesh(bodyGeo, new THREE.ShaderMaterial({
+    uniforms:{...shared, uH:{value:h/2}, uAlpha:{value:WATER.alpha*.55}, uDeepA:{value:WATER.deepAlpha}, uShallow:{value:new THREE.Color(WATER.shallow)}, uDeep:{value:new THREE.Color(WATER.deep)}, uGlow:{value:new THREE.Color(WATER.glow)}},
+    vertexShader:`uniform float uUnit; varying vec3 vL; void main(){ vL = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader:`uniform float uTime,uH,uAlpha,uDeepA,uUnit; uniform vec3 uShallow,uDeep,uGlow; varying vec3 vL;
+      void main(){ float k = clamp(-vL.y/uH,0.,1.);
+        float shaft = pow(.5+.5*sin((vL.x+vL.z*.6)*uUnit*26.+sin(uTime*.35)*2.+vL.y*uUnit*6.),6.)*(1.-k);
+        vec3 col = mix(uShallow*.7,uDeep,k)+uGlow*shaft*.18;
+        gl_FragColor = vec4(col,mix(uAlpha,uDeepA,k)+shaft*.05); }`,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide, toneMapped:false}));
+  body.renderOrder = -3; g.add(body);
+  // bubbles: a few slow glowing beads rising to the surface
+  const bub = additivePoints(WATER.bubbleSize*unit,bubbles); bub.geometry.setDrawRange(0,bubbles); bub.renderOrder = -2; g.add(bub);
+  const seed = Float32Array.from({length:bubbles*4},()=>Math.random());
+  const bc = bub.geometry.attributes.color; for (let i=0;i<bubbles;i++) bc.setXYZ(i,.55,.62,1); bc.needsUpdate = true;
+  // glass (table only): faint walls and bright edges, as tall as it is wide
+  if (glass) {
+    const box = new THREE.BoxGeometry(w,h,d);
+    const walls = new THREE.Mesh(box,new THREE.MeshBasicMaterial({color:WATER.glass,transparent:true,opacity:.045,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
+    walls.renderOrder = -4; g.add(walls);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box),new THREE.LineBasicMaterial({color:WATER.glass,transparent:true,opacity:.5,toneMapped:false}));
+    g.add(edges);
+  }
+  g.userData.update = t => {
+    const p = bub.geometry.attributes.position, rise = WATER.bubbleRise/unit;
+    for (let i=0;i<bubbles;i++){
+      const u = (seed[i*4+3]+t*rise*(.6+seed[i*4+2])/(h/2))%1, y = -h/2+u*h/2*.98;
+      p.setXYZ(i,(seed[i*4]-.5)*w*.92+Math.sin(t*1.7+i)*.004/unit,y,(seed[i*4+1]-.5)*d*.92);
+    }
+    p.needsUpdate = true;
+  };
+  return g;
+}
+// window tank: exactly the window box, 1 mm inside its walls, water up to the middle
+const winTank = makeTank({w:WIN.w*S-.002, h:WIN.h*S-.002, d:WIN.depth-.002});
+winTank.position.set((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-WIN.depth/2); winBox.add(winTank);
 
 // ---- COT halo: three nested particle shells around each coin, one per trader group (Barış's weekly CoT context)
 // inner = commercial (hedgers), middle = noncommercial (speculators), outer = nonreportable (small traders)
@@ -595,6 +657,8 @@ clipToWindow(dio); dio.traverse(o=>{ o.renderOrder = -1; });   // drawn before t
 
 function updateDiorama(t){
   updateWindowClip();
+  waterUniforms.uTime.value = t*WATER.speed;
+  if (state.dioOnTable) tableTank.userData.update(t); else winTank.userData.update(t);
   const n = loop.obs.length;
   if (n>1 && state.playing) { const L = loop.step*(n-1)+loop.hold, s = (t%L)/loop.step; loop.idx = Math.min(n-1,s); }
   else loop.idx = n-1;
@@ -679,8 +743,9 @@ function along(d,out){                       // point at arc length d (monotone 
 const nA = new THREE.Vector3(), nB = new THREE.Vector3(), pt = [0,0,0];
 // highest diorama-local y that is still inside the window box at depth z (box ceiling and front opening, tilt included)
 function ceilAt(z){
-  if (state.dioOnTable) return .3;
-  const a = dio.rotation.x, f = dio.scale.y, half = WIN.h*S/2/f, front = -dio.position.z/f;
+  if (state.dioOnTable) return DIO_FOOT/2;                               // tank lid (the tank is as tall as it is wide)
+  const a = dio.rotation.x; if (Math.abs(a)<1e-3) return WIN.h*S/2/dio.scale.y;   // level aquarium: under the box ceiling
+  const f = dio.scale.y, half = WIN.h*S/2/f, front = -dio.position.z/f;
   return Math.min((half+z*Math.sin(a))/Math.cos(a), (front-z*Math.cos(a))/Math.sin(a));
 }
 function updateLinks(t){
@@ -821,11 +886,13 @@ const corners = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz])=>{
   deskItem.add(ball); return {ball,glow,hit,sx,sz};
 });
 const holder3D = new THREE.Group(); deskItem.add(holder3D);           // the diorama is re-parented here
+// table tank: a glass cube on the footprint (one cell, scaled by the cell count), half full; the diorama's zero sits on its surface
+const tableTank = makeTank({w:DESK.cell, h:DESK.cell, d:DESK.cell, glass:true, bubbles:24}); deskItem.add(tableTank);
 deskItem.visible = false;
 
 const DIO_FOOT = .40;                                                    // diorama width incl. halos (dio units)
-// tilt presets on the table; the turn (state.dioYaw) works in all of them. lift keeps the lowest point above the table (dio units)
-const TABLE_VIEWS = {top:{tilt:Math.PI/2, lift:.21, label:'TOP'}, front:{tilt:0, lift:.2, label:'FRONT'}, persp:{tilt:.35, lift:.24, label:'PERSP'}};
+// tilt presets on the table; the turn (state.dioYaw) works in all of them. They turn only the contents: the tank and its water stay level
+const TABLE_VIEWS = {top:{tilt:Math.PI/2, label:'TOP'}, front:{tilt:0, label:'FRONT'}, persp:{tilt:.35, label:'PERSP'}};
 const tableView = () => TABLE_VIEWS[state.dioView] || TABLE_VIEWS.persp;
 const dioTargetQ = new THREE.Quaternion(), dioEuler = new THREE.Euler(0,0,0,'XYZ');
 const dioWindowPose = {pos:dio.position.clone(), rotX:dio.rotation.x, scale:dio.scale.x};
@@ -836,6 +903,7 @@ function layoutDeskItem(i,j,n,instant){
   itemEdge.scale.set(w*.98,w*.98,1); itemPad.scale.set(w,w,1);
   for (const c of corners) c.ball.position.set(c.sx*w/2,.006,c.sz*w/2);
   const s = w/DIO_FOOT; dio.scale.setScalar(s); freeLift();
+  tableTank.scale.setScalar(n); tableTank.position.y = w/2;
   if (instant) { dio.position.set(0,dio.userData.lift,0); dio.quaternion.copy(state.dioQ ? qH.fromArray(state.dioQ) : tableTargetQ()); }
   rotRing.scale.setScalar(w); knob.scale.setScalar(1/w);
   tableViewP.mesh.position.set(0,.02,w/2+.07);
@@ -1076,8 +1144,7 @@ function handYaw(s){ const j = s.hand.joints; if (!j['wrist']?.visible || !j['mi
   return Math.atan2(jB.x-jA.x,jB.z-jA.z); }
 const qH = new THREE.Quaternion(), qGi = new THREE.Quaternion();
 function handQ(s,out){ s.hand.joints['wrist'].getWorldQuaternion(out); deskGrid.getWorldQuaternion(qGi); return out.premultiply(qGi.invert()); }   // wrist turn in grid space
-const FREE_LIFT = .25;                                                   // lift after a free turn (dio units): clears the table in any pose
-function freeLift(){ dio.userData.lift = (state.dioQ ? FREE_LIFT : tableView().lift)*dio.scale.x; }
+function freeLift(){ dio.userData.lift = DIO_FOOT/2*dio.scale.x; }       // centre of the tank = water surface = zero, in every pose
 function handGrabStart(s){
   const j = s.hand?.joints; if (!j?.['index-finger-tip']?.visible || !j['thumb-tip']?.visible) return false;
   deskGrid.updateMatrixWorld(); invGrid.copy(deskGrid.matrixWorld).invert(); pinchPoint(s,gp);
