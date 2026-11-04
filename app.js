@@ -36,7 +36,7 @@ const rowOf = (o,c) => o.rows.find(r=>r.currency===c);
 
 const state = {
   horizon: HORIZONS.map(h=>h.id).find(h=>data[h]),
-  currency: 'USD', hidden: false, scale: 1, desk: false, playing: true,
+  currency: 'USD', hidden: false, scale: 1, desk: false, playing: true, allLinks: false,
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
@@ -232,12 +232,25 @@ function calendarNumber(ctx,cx,cy,size,color){ // "12" inside the calendar symbo
 }
 
 // ---------------------------------------------------------------- 02 · CHARTS
-panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,draw(ctx){
+const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,draw(ctx,p){
   rr(ctx,0,0,639,581,24); const g = ctx.createLinearGradient(0,0,0,581);
   g.addColorStop(0,'#2b2852'); g.addColorStop(.55,'#201d40'); g.addColorStop(1,'#16152c');
   ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
   text(ctx,'DIORAMA',25,32,{font:'800 14px Manrope',color:C.muted,ls:'.4px'});
   text(ctx,'3D',614,32,{font:'600 14px "Kode Mono"',color:C.muted,align:'right'});
+  // links toggle: selected coin only ↔ all pairs (neural view)
+  { const x = 452, y = 14, w = 128, h = 34, on = state.allLinks, hot = p.hover==='links';
+    ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?16:10; }
+    rr(ctx,x,y,w,h,17); ctx.fillStyle = on ? C.pink : C.card; ctx.fill(); ctx.restore();
+    if (!on) { rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke(); }
+    const ink = on ? C.dark : (hot ? C.pink : C.ink), cy = y+h/2;
+    // little node graph: three dots, wired to one (selected) or to each other (all)
+    const d = [[x+20,cy-7],[x+20,cy+7],[x+34,cy]];
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.3; ctx.beginPath();
+    ctx.moveTo(...d[2]); ctx.lineTo(...d[0]); ctx.moveTo(...d[2]); ctx.lineTo(...d[1]); if (on) { ctx.moveTo(...d[0]); ctx.lineTo(...d[1]); } ctx.stroke();
+    ctx.fillStyle = ink; for (const [a,b] of d) { ctx.beginPath(); ctx.arc(a,b,3,0,Math.PI*2); ctx.fill(); }
+    text(ctx,on?'ALL LINKS':'SELECTED',x+48,cy+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
+    p.region('links',x-6,y-8,w+12,h+16,()=>{ state.allLinks = !state.allLinks; p.dirty = true; }); }
   cutWindow(ctx,441.5,103.5);
   rr(ctx,WIN.x-441.5,WIN.y-103.5,WIN.w,WIN.h,WIN.r); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
 }});
@@ -335,7 +348,7 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = dio.visible = !state.hidden; }],
   ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; place(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -400,7 +413,61 @@ function radialTexture(){ const c = document.createElement('canvas'); c.width = 
   const gr = g.createRadialGradient(32,32,0,32,32,32); gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.3,'rgba(255,255,255,.45)'); gr.addColorStop(1,'rgba(255,255,255,0)');
   g.fillStyle = gr; g.fillRect(0,0,64,64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 const glowTex = radialTexture();
-const UP = new THREE.Color('#9cbcff'), DOWN = new THREE.Color('#e0907e');
+const UP = new THREE.Color('#9cbcff'), DOWN = new THREE.Color('#e0907e'), PINK = new THREE.Color(C.pink);
+const additivePoints = (size,n) => {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3),3).setUsage(THREE.DynamicDrawUsage));
+  geo.setDrawRange(0,0);
+  const pts = new THREE.Points(geo,new THREE.PointsMaterial({map:glowTex,size,vertexColors:true,transparent:true,
+    blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+  pts.frustumCulled = false; return pts;
+};
+
+// ---- COT halo: three nested particle shells around each coin, one per trader group (Barış's weekly CoT context)
+// inner = commercial (hedgers), middle = noncommercial (speculators), outer = nonreportable (small traders)
+// count ← |net| share of open interest · flow ← sign of net (long out / short in) · speed ← weekly change of net
+// overall radius ← open interest (log, relative to the other currencies) · brightness ← 52-week percentile extremity
+const HALO = {r:[.032,.043,.055], spread:.0055, min:50, max:320, size:.0042, glow:1.25, swirl:.25};
+const COT_GROUPS = ['commercial','noncommercial','nonreportable'];
+const cotOf = (() => {
+  const src = Object.values(data).find(d=>d.contexts?.cot)?.contexts.cot || [], out = {};
+  for (const c of src) {
+    if (c.state!=='available') continue;
+    const d = c.data, oi = d.openInterest || 1, prev = d.previousReport?.state==='available' ? d.previousReport.data.groups : [];
+    const p52 = d.statistics?.find(s=>s.window===52)?.percentile;
+    out[c.currency] = {
+      oi, report:d.reportDate, p52: p52?.state==='available' ? p52.value : 50,
+      groups: COT_GROUPS.map(id => {
+        const g = d.groups.find(x=>x.id===id) || {long:0,short:0}, pg = prev.find(x=>x.id===id);
+        const net = g.net ?? (g.long-g.short), pnet = pg ? pg.long-pg.short : net;
+        return {id, net, pctOi: g.netPctOi ?? net/oi*100, change:(net-pnet)/oi};
+      }),
+    };
+  }
+  const ois = Object.values(out).map(c=>Math.log(c.oi)), lo = Math.min(...ois), hi = Math.max(...ois);
+  for (const c of Object.values(out)) c.oiN = hi>lo ? (Math.log(c.oi)-lo)/(hi-lo) : .5;
+  return cur => out[cur] || null;
+})();
+function makeHalo(cur){
+  const cot = cotOf(cur), shells = [];
+  let total = 0;
+  COT_GROUPS.forEach((id,k)=>{
+    const g = cot?.groups[k], share = g ? Math.min(1,Math.abs(g.pctOi)/50) : .15;
+    const n = Math.round(HALO.min+(HALO.max-HALO.min)*share);
+    shells.push({id, n, start:total, dir: g ? Math.sign(g.net)||1 : 1,
+      speed: g ? .12+.9*Math.min(1,Math.abs(g.change)/.04) : .12, r:HALO.r[k]}); total += n;
+  });
+  const pts = additivePoints(HALO.size,total);
+  const dirs = new Float32Array(total*3), phase = new Float32Array(total);
+  for (let i=0;i<total;i++){                                     // even spread on the sphere (Fibonacci), random phase
+    const y = 1-2*(i+.5)/total, r = Math.sqrt(1-y*y), a = i*2.39996323;
+    dirs[i*3] = Math.cos(a)*r; dirs[i*3+1] = y; dirs[i*3+2] = Math.sin(a)*r; phase[i] = Math.random();
+  }
+  pts.geometry.setDrawRange(0,total);
+  const ext = cot ? Math.max(0,(Math.abs(cot.p52-50)-35)/15) : 0;   // 0 inside 15–85 %, 1 at the extremes
+  return {pts, shells, dirs, phase, total, size: cot ? .85+.3*cot.oiN : .9, bright:1+ext*.9, tight:1-ext*.4};
+}
 const marbles = CURRENCIES.map((cur,i)=>{
   const a = -Math.PI/2+i*Math.PI/4, x = Math.cos(a)*DIO.R*.78, z = Math.sin(a)*DIO.R*.78;
   const g = new THREE.Group(); g.position.set(x,0,z); dio.add(g);
@@ -408,21 +475,28 @@ const marbles = CURRENCIES.map((cur,i)=>{
   const ball = new THREE.Group(); g.add(ball);
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(.02,32,16),mat); ball.add(sphere);   // fallback until the coin loads
   const spin = new THREE.Group(); ball.add(spin);                                                // coin turns on its vertical axis
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:UP,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:.9}));
-  glow.scale.setScalar(.11); ball.add(glow);
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false}));
   hit.userData.currency = cur; ball.add(hit);
-  const halo = new THREE.Mesh(new THREE.RingGeometry(.018,.0215,48),new THREE.MeshBasicMaterial({color:UP,transparent:true,opacity:.8,side:THREE.DoubleSide,toneMapped:false}));
-  halo.rotation.x = -Math.PI/2; g.add(halo);
-  const sel = new THREE.Mesh(new THREE.TorusGeometry(.03,.0014,8,64),new THREE.MeshBasicMaterial({color:C.pink,toneMapped:false}));
+  const halo = makeHalo(cur); ball.add(halo.pts);
+  const sel = new THREE.Mesh(new THREE.TorusGeometry(.062,.0012,8,96),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,toneMapped:false}));
   sel.rotation.x = Math.PI/2; ball.add(sel);
   const n = 14, pos = new Float32Array(n*3);
   const column = new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(pos,3)),
     new THREE.PointsMaterial({map:glowTex,color:UP,size:.008,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
   g.add(column);
-  return {cur,g,ball,sphere,spin,coin:null,phase:i*.7,mat,glow,hit,halo,sel,column,n,y:0};
+  return {cur,i,g,ball,sphere,spin,coin:null,phase:i*.7,mat,hit,halo,sel,column,n,y:0,z:0};
 });
 const zAt = (o,cur) => { const r = o && rowOf(o,cur); return r ? Math.max(-DIO.clamp,Math.min(DIO.clamp,r.strengthZ)) : 0; };
+
+// ---- links: particle cables from the selected coin's halo to the others (or all pairs)
+// route: up from a node on the outer halo shell, across in x, across in z, down to the target node — soft rounded corners
+// flow ← direction weak → strong, speed and density ← strength gap · breathing ← speculator CoT positioning gap
+const LINK = {rise:.012, riseLen:.03, lane:.03, ceilGap:.012, round:.016, bead:.0026, beadSize:.0034, flowSize:.0068, glow:.95,
+              maxBeads:320, maxFlow:36, nodeLift:.7};
+const pairs = []; for (let a=0;a<8;a++) for (let b=a+1;b<8;b++) pairs.push([a,b]);
+const linkBeads = additivePoints(LINK.beadSize,pairs.length*LINK.maxBeads); dio.add(linkBeads);
+const linkFlow = additivePoints(LINK.flowSize,pairs.length*(LINK.maxFlow+2)); dio.add(linkFlow);
+const beadJitter = Float32Array.from({length:LINK.maxBeads*3},()=>Math.random()-.5);
 clipToWindow(dio); dio.traverse(o=>{ o.renderOrder = -1; });   // drawn before the panels, seen through the window
 
 function updateDiorama(t){
@@ -432,18 +506,137 @@ function updateDiorama(t){
   else loop.idx = n-1;
   const i0 = Math.floor(loop.idx), i1 = Math.min(n-1,i0+1), f = loop.idx-i0;
   const gap = loop.obs[i1]?.continuity==='gap', k = gap ? (f<.5?0:1) : f*f*(3-2*f);
+  const dt = Math.min(.1,Math.max(0,t-(updateDiorama.last ?? t))); updateDiorama.last = t;
   for (const m of marbles) {
     const z = zAt(loop.obs[i0],m.cur)*(1-k)+zAt(loop.obs[i1],m.cur)*k;
-    const y = z*DIO.U; m.ball.position.y = y; m.y = y;
+    const y = z*DIO.U; m.ball.position.y = y; m.y = y; m.z = z;
     const col = z>=0 ? UP : DOWN;
-    m.glow.material.color.copy(col); m.halo.material.color.copy(col); m.column.material.color.copy(col);
+    m.column.material.color.copy(col);
     m.mat.emissive.set(z>=0?'#5d86ff':'#b5543f'); m.mat.color.set(z>=0?'#eef3ff':'#f2b0a2');
     m.spin.rotation.y = t*COIN.spin+m.phase;
-    m.sel.visible = m.cur===state.currency; m.sel.rotation.z = t*.8;
+    m.sel.visible = m.cur===state.currency; m.sel.rotation.z = t*.8; m.sel.material.opacity = .45+.25*Math.sin(t*2.4);
     const p = m.column.geometry.attributes.position;
     for (let j=0;j<m.n;j++){ const u = ((j/m.n)+t*.25)%1; p.setXYZ(j,0,y*u,0); }
     p.needsUpdate = true;
+    updateHalo(m,t,dt,col);
   }
+  updateLinks(t);
+}
+
+const tmpCol = new THREE.Color();
+function updateHalo(m,t,dt,col){
+  const h = m.halo, pos = h.pts.geometry.attributes.position.array, cl = h.pts.geometry.attributes.color.array;
+  const sel = m.cur===state.currency ? 1.25 : 1;
+  h.pts.rotation.y = t*HALO.swirl+m.phase; h.pts.rotation.z = Math.sin(t*.3+m.phase)*.25;
+  h.shells.forEach((s,k)=>{
+    // shell colour: inner whiter, outer carries the up/down tint
+    tmpCol.copy(col).lerp(PINK,k===1?.25:0).lerp(new THREE.Color('#ffffff'),k===0?.45:k===1?.15:0);
+    const R = s.r*h.size, spread = HALO.spread*h.tight;
+    for (let j=0;j<s.n;j++){
+      const i = s.start+j;
+      h.phase[i] = (h.phase[i]+dt*s.speed*(.6+.8*((i*7919)%13)/13))%1;
+      const u = h.phase[i], rr = R+spread*(s.dir>0 ? u : 1-u)-spread*.5;   // long: drift outward · short: drift inward
+      const wob = 1+.06*Math.sin(t*1.7+i*.37);
+      pos[i*3] = h.dirs[i*3]*rr*wob; pos[i*3+1] = h.dirs[i*3+1]*rr*wob; pos[i*3+2] = h.dirs[i*3+2]*rr*wob;
+      const a = Math.sin(Math.PI*u)*(.55+.45*Math.sin(t*3+i))*HALO.glow*h.bright*sel;   // fade in and out along the drift
+      cl[i*3] = tmpCol.r*a; cl[i*3+1] = tmpCol.g*a; cl[i*3+2] = tmpCol.b*a;
+    }
+  });
+  h.pts.geometry.attributes.position.needsUpdate = true; h.pts.geometry.attributes.color.needsUpdate = true;
+}
+
+// halo node on the outer shell, leaning toward the target (TouchDesigner-style connector ball)
+function nodePoint(m,toward,out){
+  const R = (HALO.r[2]+HALO.spread*.5)*m.halo.size;
+  let dx = toward.g.position.x-m.g.position.x, dz = toward.g.position.z-m.g.position.z; const l = Math.hypot(dx,dz)||1; dx/=l; dz/=l;
+  const c = Math.cos(LINK.nodeLift), s = Math.sin(LINK.nodeLift);
+  out.set(m.g.position.x+dx*c*R, m.y+s*R, m.g.position.z+dz*c*R); return out;
+}
+const pathPts = [], cum = [];
+function pushPt(x,y,z){ const n = pathPts.length; if (n>=3 && Math.abs(pathPts[n-3]-x)+Math.abs(pathPts[n-2]-y)+Math.abs(pathPts[n-1]-z)<1e-6) return; pathPts.push(x,y,z); }
+function buildRoute(A,B,H){
+  // orthogonal corners, each softened with a quadratic curve
+  const c = [[A.x,A.y,A.z],[A.x,H,A.z],[B.x,H,A.z],[B.x,H,B.z],[B.x,B.y,B.z]]
+    .filter((p,i,arr)=>!i || Math.abs(p[0]-arr[i-1][0])+Math.abs(p[1]-arr[i-1][1])+Math.abs(p[2]-arr[i-1][2])>1e-5);
+  pathPts.length = 0; pushPt(...c[0]);
+  for (let i=1;i<c.length-1;i++){
+    const P = c[i], Q = c[i-1], N = c[i+1];
+    const lq = Math.hypot(Q[0]-P[0],Q[1]-P[1],Q[2]-P[2]), ln = Math.hypot(N[0]-P[0],N[1]-P[1],N[2]-P[2]);
+    const r = Math.min(LINK.round,lq/2,ln/2);
+    const p1 = P.map((v,j)=>v+(Q[j]-v)/lq*r), p2 = P.map((v,j)=>v+(N[j]-v)/ln*r);
+    for (let s=0;s<=8;s++){ const u = s/8, a = (1-u)*(1-u), b = 2*u*(1-u), d = u*u;
+      pushPt(a*p1[0]+b*P[0]+d*p2[0], a*p1[1]+b*P[1]+d*p2[1], a*p1[2]+b*P[2]+d*p2[2]); }
+  }
+  pushPt(...c.at(-1));
+  cum.length = 0; cum.push(0);
+  for (let i=3;i<pathPts.length;i+=3) cum.push(cum.at(-1)+Math.hypot(pathPts[i]-pathPts[i-3],pathPts[i+1]-pathPts[i-2],pathPts[i+2]-pathPts[i-1]));
+  return cum.at(-1);
+}
+let seg = 0;
+function along(d,out){                       // point at arc length d (monotone calls → walking index)
+  if (d<=0) seg = 0; while (seg<cum.length-2 && cum[seg+1]<d) seg++; while (seg>0 && cum[seg]>d) seg--;
+  const l = cum[seg+1]-cum[seg] || 1, f = Math.max(0,Math.min(1,(d-cum[seg])/l)), i = seg*3;
+  out[0] = pathPts[i]+(pathPts[i+3]-pathPts[i])*f; out[1] = pathPts[i+1]+(pathPts[i+4]-pathPts[i+1])*f; out[2] = pathPts[i+2]+(pathPts[i+5]-pathPts[i+2])*f;
+}
+const nA = new THREE.Vector3(), nB = new THREE.Vector3(), pt = [0,0,0];
+// highest diorama-local y that is still inside the window box at depth z (box ceiling and front opening, tilt included)
+function ceilAt(z){
+  const a = dio.rotation.x, f = dio.scale.y, half = WIN.h*S/2/f, front = -dio.position.z/f;
+  return Math.min((half+z*Math.sin(a))/Math.cos(a), (front-z*Math.cos(a))/Math.sin(a));
+}
+function updateLinks(t){
+  const bp = linkBeads.geometry.attributes.position.array, bc = linkBeads.geometry.attributes.color.array;
+  const fp = linkFlow.geometry.attributes.position.array, fc = linkFlow.geometry.attributes.color.array;
+  let nb = 0, nf = 0;
+  const selIdx = CURRENCIES.indexOf(state.currency);
+  pairs.forEach(([ia,ib],pi)=>{
+    const involvesSel = ia===selIdx || ib===selIdx;
+    if (!state.allLinks && !involvesSel) return;
+    // orient the pair: from the selected coin outward (or the lower index when neither is selected)
+    const from = involvesSel ? marbles[selIdx] : marbles[ia], to = involvesSel ? marbles[ia===selIdx?ib:ia] : marbles[ib];
+    nodePoint(from,to,nA); nodePoint(to,from,nB);
+    const dist = Math.hypot(nB.x-nA.x,nB.z-nA.z);
+    // rise: longer links climb higher; each link gets its own lane so cables never touch; stays under the window ceiling
+    const lane = involvesSel ? to.i : pi, lanes = involvesSel ? 8 : pairs.length;
+    const base = Math.max(nA.y,nB.y)+.006, top = Math.max(base,ceilAt(Math.min(nA.z,nB.z))-LINK.ceilGap);
+    const H = Math.min(top,base+LINK.rise+LINK.riseLen*dist/(DIO.R*1.56)+LINK.lane*(lane+1)/lanes);
+    const len = buildRoute(nA,nB,H);
+    // colour: selected stronger → up tint, weaker → down tint; pairs without the selected coin → soft pink
+    const gap = to.z-from.z, gapN = Math.min(1,Math.abs(gap)/2);
+    if (involvesSel) tmpCol.copy(from.z>=to.z ? UP : DOWN); else tmpCol.copy(PINK);
+    const dim = involvesSel ? 1 : .45;
+    // breathing ← difference in speculator positioning (% of OI) between the two currencies
+    const ca = cotOf(from.cur), cb = cotOf(to.cur);
+    const cotGap = ca && cb ? Math.min(1,Math.abs(ca.groups[1].pctOi-cb.groups[1].pctOi)/60) : 0;
+    const breath = .55+(.15+.45*cotGap)*Math.sin(t*(1.4+cotGap*1.6)+pi);
+    // beads: the cable itself
+    const nBeads = Math.min(LINK.maxBeads,Math.floor(len/LINK.bead));
+    seg = 0;
+    for (let j=0;j<nBeads;j++){
+      along(j*LINK.bead,pt); const jj = j*3, J = .0012;
+      bp[nb*3] = pt[0]+beadJitter[jj]*J; bp[nb*3+1] = pt[1]+beadJitter[jj+1]*J; bp[nb*3+2] = pt[2]+beadJitter[jj+2]*J;
+      const s = j/nBeads, shimmer = .75+.25*Math.sin(t*4-s*18+pi);
+      const a = LINK.glow*breath*shimmer*dim*(.35+.65*Math.sin(Math.PI*Math.min(1,s*1.15+.0)));
+      bc[nb*3] = tmpCol.r*a; bc[nb*3+1] = tmpCol.g*a; bc[nb*3+2] = tmpCol.b*a; nb++;
+    }
+    // flowing particles: weak → strong, speed and count from the strength gap
+    const forward = gap>=0;                                          // to is stronger → flow from → to
+    const nFlow = Math.round(3+(LINK.maxFlow-3)*gapN), v = .025+.07*gapN;
+    seg = 0;
+    const order = [];
+    for (let j=0;j<nFlow;j++){ const u = ((j/nFlow)+t*v/Math.max(len,.01))%1; order.push(forward ? u : 1-u); }
+    order.sort((x,y)=>x-y);
+    for (const u of order){
+      along(u*len,pt); fp[nf*3] = pt[0]; fp[nf*3+1] = pt[1]; fp[nf*3+2] = pt[2];
+      const a = Math.sin(Math.PI*u)*(.7+.3*breath)*dim*1.1;
+      fc[nf*3] = Math.min(1,tmpCol.r*a+.25*a); fc[nf*3+1] = Math.min(1,tmpCol.g*a+.25*a); fc[nf*3+2] = Math.min(1,tmpCol.b*a+.25*a); nf++;
+    }
+    // node balls on both halos
+    for (const N of [nA,nB]){ fp[nf*3] = N.x; fp[nf*3+1] = N.y; fp[nf*3+2] = N.z;
+      const a = (.8+.2*Math.sin(t*3+pi))*dim; fc[nf*3] = Math.min(1,.6*a+tmpCol.r*.5); fc[nf*3+1] = Math.min(1,.6*a+tmpCol.g*.5); fc[nf*3+2] = Math.min(1,.6*a+tmpCol.b*.5); nf++; }
+  });
+  linkBeads.geometry.setDrawRange(0,nb); linkFlow.geometry.setDrawRange(0,nf);
+  for (const g of [linkBeads.geometry,linkFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
 }
 
 // ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
