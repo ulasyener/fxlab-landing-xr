@@ -1,0 +1,1897 @@
+{
+  "schema": "fxlab-browser-evidence/1.2.0",
+  "requestId": "fixture-only",
+  "dataset": "held",
+  "selection": {
+    "horizon": "5h",
+    "mode": "latest"
+  },
+  "generatedAt": "2026-10-04T00:00:00.000000Z",
+  "state": "ready",
+  "sources": [
+    {
+      "id": "currency_5h_v3_obs_33c2d88a7cb8d3bfeff20be834ede4973399e77388c3dfda3706e22dda379507",
+      "family": "currency-5h-v3",
+      "observationId": "currency_5h_v3_obs_33c2d88a7cb8d3bfeff20be834ede4973399e77388c3dfda3706e22dda379507",
+      "artifactId": "currency_5h_shadow_c5e81b253dc9d63ea5c62973da1f8ae8a12905401f0116b082de7a4c7f461589",
+      "recipe": "approved-currency-universe-5h-v3-v1@1.0.0",
+      "currency": null,
+      "hash": "sha256:33c2d88a7cb8d3bfeff20be834ede4973399e77388c3dfda3706e22dda379507",
+      "revision": "2026-08-21T11:20:31.000000Z",
+      "knownAt": "2026-08-21T11:21:07.104233Z",
+      "capturedAt": "2026-08-21T11:31:00.000000Z",
+      "allowedUses": [
+        "display",
+        "explanation"
+      ],
+      "limitations": [
+        "shadow only; display and explanation",
+        "120x5h correlation not yet ready"
+      ],
+      "distribution": {
+        "audience": "public-fxlab",
+        "decisionId": "owner-2026-10-04-fxlab-public-real-data",
+        "policyVersion": "1.0.0"
+      }
+    },
+    {
+      "id": "currency_5h_v3_obs_d2c262cb754471d54eac481ca97aa0a001f4565cb516e5bbe3c6a57a605e26d7",
+      "family": "currency-5h-v3",
+      "observationId": "currency_5h_v3_obs_d2c262cb754471d54eac481ca97aa0a001f4565cb516e5bbe3c6a57a605e26d7",
+      "artifactId": "currency_5h_shadow_ae6a0bae87ef73a9552fa2da7c3f32e9f40274ae8b329497a8102601a0962626",
+      "recipe": "approved-currency-universe-5h-v3-v1@1.0.0",
+      "currency": null,
+      "hash": "sha256:d2c262cb754471d54eac481ca97aa0a001f4565cb516e5bbe3c6a57a605e26d7",
+      "revision": "2026-08-21T11:20:31.000000Z",
+      "knownAt": "2026-08-21T11:21:07.104233Z",
+      "capturedAt": "2026-08-21T11:31:00.000000Z",
+      "allowedUses": [
+        "display",
+        "explanation"
+      ],
+      "limitations": [
+        "shadow only; display and explanation",
+        "120x5h correlation not yet ready"
+      ],
+      "distribution": {
+        "audience": "public-fxlab",
+        "decisionId": "owner-2026-10-04-fxlab-public-real-data",
+        "policyVersion": "1.0.0"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "currency_5h_v3_obs_33c2d88a7cb8d3bfeff20be834ede4973399e77388c3dfda3706e22dda379507",
+      "sourceRef": "currency_5h_v3_obs_33c2d88a7cb8d3bfeff20be834ede4973399e77388c3dfda3706e22dda379507",
+      "start": "2026-08-21T01:00:00.000000Z",
+      "end": "2026-08-21T06:00:00.000000Z",
+      "continuity": "start",
+      "movingAverageMethod": "synthetic-log-index-ema-3-6-12-v1",
+      "rows": [
+        {
+          "currency": "NZD",
+          "rank": 1,
+          "previousRank": 3,
+          "strengthZ": 1.78,
+          "delta1": {
+            "state": "available",
+            "value": 0.27
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.71
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1.04
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.03
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1.02
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1.01
+          },
+          "movingAverageState": "strong-trend",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "AUD",
+          "rank": 2,
+          "previousRank": 1,
+          "strengthZ": 0.74,
+          "delta1": {
+            "state": "available",
+            "value": 0.11
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.3
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1.04
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.03
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1.02
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1.01
+          },
+          "movingAverageState": "strong-trend",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "CAD",
+          "rank": 3,
+          "previousRank": 4,
+          "strengthZ": 0.22,
+          "delta1": {
+            "state": "available",
+            "value": 0.03
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.09
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1.01
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.005
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1
+          },
+          "ema12": {
+            "state": "available",
+            "value": 0.995
+          },
+          "movingAverageState": "improving",
+          "fastMediumCross": "crossed-above"
+        },
+        {
+          "currency": "EUR",
+          "rank": 4,
+          "previousRank": 5,
+          "strengthZ": 0.09,
+          "delta1": {
+            "state": "available",
+            "value": 0.01
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.04
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.001
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.999
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1
+          },
+          "movingAverageState": "neutral-choppy",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "GBP",
+          "rank": 5,
+          "previousRank": 6,
+          "strengthZ": 0.08,
+          "delta1": {
+            "state": "available",
+            "value": 0.01
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.03
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.001
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.999
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1
+          },
+          "movingAverageState": "neutral-choppy",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "CHF",
+          "rank": 6,
+          "previousRank": 7,
+          "strengthZ": -0.6,
+          "delta1": {
+            "state": "available",
+            "value": -0.09
+          },
+          "delta3": {
+            "state": "available",
+            "value": -0.24
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 0.99
+          },
+          "ema3": {
+            "state": "available",
+            "value": 0.995
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1.005
+          },
+          "movingAverageState": "deteriorating",
+          "fastMediumCross": "crossed-below"
+        },
+        {
+          "currency": "JPY",
+          "rank": 7,
+          "previousRank": 8,
+          "strengthZ": -0.84,
+          "delta1": {
+            "state": "available",
+            "value": -0.13
+          },
+          "delta3": {
+            "state": "available",
+            "value": -0.34
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 0.96
+          },
+          "ema3": {
+            "state": "available",
+            "value": 0.97
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.98
+          },
+          "ema12": {
+            "state": "available",
+            "value": 0.99
+          },
+          "movingAverageState": "weak-trend",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "USD",
+          "rank": 8,
+          "previousRank": 2,
+          "strengthZ": -1.47,
+          "delta1": {
+            "state": "available",
+            "value": -0.22
+          },
+          "delta3": {
+            "state": "available",
+            "value": -0.59
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 0.96
+          },
+          "ema3": {
+            "state": "available",
+            "value": 0.97
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.98
+          },
+          "ema12": {
+            "state": "available",
+            "value": 0.99
+          },
+          "movingAverageState": "weak-trend",
+          "fastMediumCross": "none"
+        }
+      ],
+      "pairs": [
+        {
+          "base": "USD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -1.56
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": -1.55
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": -0.63
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -2.21
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -3.25
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -1.69
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": -0.87
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 1.56
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 0.01
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 0.93
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -0.65
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.69
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -0.13
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 0.69
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 1.55
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -0.01
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 0.92
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -0.66
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.7
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -0.14
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 0.68
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 0.63
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -0.93
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": -0.92
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -1.58
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -2.62
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -1.06
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": -0.24
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 2.21
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": 0.65
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 0.66
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 1.58
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.04
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": 0.52
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 1.34
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 3.25
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": 1.69
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 1.7
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 2.62
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": 1.04
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": 1.56
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 2.38
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 1.69
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": 0.13
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 0.14
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 1.06
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -0.52
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.56
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 0.82
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 0.87
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -0.69
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": -0.68
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 0.24
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -1.34
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -2.38
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -0.82
+          }
+        }
+      ],
+      "correlations": {
+        "periods60": {
+          "state": "available",
+          "edges": [
+            {
+              "left": "USD",
+              "right": "EUR",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "GBP",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "JPY",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "GBP",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "JPY",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "JPY",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "AUD",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "AUD",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "AUD",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "NZD",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "NZD",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "CAD",
+              "right": "CHF",
+              "value": 0.12
+            }
+          ]
+        },
+        "periods120": {
+          "state": "unavailable",
+          "reason": "Correlation window not available from source"
+        }
+      }
+    },
+    {
+      "id": "currency_5h_v3_obs_d2c262cb754471d54eac481ca97aa0a001f4565cb516e5bbe3c6a57a605e26d7",
+      "sourceRef": "currency_5h_v3_obs_d2c262cb754471d54eac481ca97aa0a001f4565cb516e5bbe3c6a57a605e26d7",
+      "start": "2026-08-21T06:00:00.000000Z",
+      "end": "2026-08-21T11:00:00.000000Z",
+      "continuity": "contiguous",
+      "movingAverageMethod": "synthetic-log-index-ema-3-6-12-v1",
+      "rows": [
+        {
+          "currency": "NZD",
+          "rank": 1,
+          "previousRank": 3,
+          "strengthZ": 1.78,
+          "delta1": {
+            "state": "available",
+            "value": 0.27
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.71
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1.04
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.03
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1.02
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1.01
+          },
+          "movingAverageState": "strong-trend",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "AUD",
+          "rank": 2,
+          "previousRank": 1,
+          "strengthZ": 0.74,
+          "delta1": {
+            "state": "available",
+            "value": 0.11
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.3
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1.04
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.03
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1.02
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1.01
+          },
+          "movingAverageState": "strong-trend",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "CAD",
+          "rank": 3,
+          "previousRank": 4,
+          "strengthZ": 0.22,
+          "delta1": {
+            "state": "available",
+            "value": 0.03
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.09
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1.01
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.005
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1
+          },
+          "ema12": {
+            "state": "available",
+            "value": 0.995
+          },
+          "movingAverageState": "improving",
+          "fastMediumCross": "crossed-above"
+        },
+        {
+          "currency": "EUR",
+          "rank": 4,
+          "previousRank": 5,
+          "strengthZ": 0.09,
+          "delta1": {
+            "state": "available",
+            "value": 0.01
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.04
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.001
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.999
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1
+          },
+          "movingAverageState": "neutral-choppy",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "GBP",
+          "rank": 5,
+          "previousRank": 6,
+          "strengthZ": 0.08,
+          "delta1": {
+            "state": "available",
+            "value": 0.01
+          },
+          "delta3": {
+            "state": "available",
+            "value": 0.03
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 1
+          },
+          "ema3": {
+            "state": "available",
+            "value": 1.001
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.999
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1
+          },
+          "movingAverageState": "neutral-choppy",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "CHF",
+          "rank": 6,
+          "previousRank": 7,
+          "strengthZ": -0.6,
+          "delta1": {
+            "state": "available",
+            "value": -0.09
+          },
+          "delta3": {
+            "state": "available",
+            "value": -0.24
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 0.99
+          },
+          "ema3": {
+            "state": "available",
+            "value": 0.995
+          },
+          "ema6": {
+            "state": "available",
+            "value": 1
+          },
+          "ema12": {
+            "state": "available",
+            "value": 1.005
+          },
+          "movingAverageState": "deteriorating",
+          "fastMediumCross": "crossed-below"
+        },
+        {
+          "currency": "JPY",
+          "rank": 7,
+          "previousRank": 8,
+          "strengthZ": -0.84,
+          "delta1": {
+            "state": "available",
+            "value": -0.13
+          },
+          "delta3": {
+            "state": "available",
+            "value": -0.34
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 0.96
+          },
+          "ema3": {
+            "state": "available",
+            "value": 0.97
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.98
+          },
+          "ema12": {
+            "state": "available",
+            "value": 0.99
+          },
+          "movingAverageState": "weak-trend",
+          "fastMediumCross": "none"
+        },
+        {
+          "currency": "USD",
+          "rank": 8,
+          "previousRank": 2,
+          "strengthZ": -1.47,
+          "delta1": {
+            "state": "available",
+            "value": -0.22
+          },
+          "delta3": {
+            "state": "available",
+            "value": -0.59
+          },
+          "syntheticIndex": {
+            "state": "available",
+            "value": 0.96
+          },
+          "ema3": {
+            "state": "available",
+            "value": 0.97
+          },
+          "ema6": {
+            "state": "available",
+            "value": 0.98
+          },
+          "ema12": {
+            "state": "available",
+            "value": 0.99
+          },
+          "movingAverageState": "weak-trend",
+          "fastMediumCross": "none"
+        }
+      ],
+      "pairs": [
+        {
+          "base": "USD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -1.56
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": -1.55
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": -0.63
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -2.21
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -3.25
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -1.69
+          }
+        },
+        {
+          "base": "USD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": -0.87
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 1.56
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 0.01
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 0.93
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -0.65
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.69
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -0.13
+          }
+        },
+        {
+          "base": "EUR",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 0.69
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 1.55
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -0.01
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 0.92
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -0.66
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.7
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -0.14
+          }
+        },
+        {
+          "base": "GBP",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 0.68
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 0.63
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -0.93
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": -0.92
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -1.58
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -2.62
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -1.06
+          }
+        },
+        {
+          "base": "JPY",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": -0.24
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 2.21
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": 0.65
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 0.66
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 1.58
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.04
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": 0.52
+          }
+        },
+        {
+          "base": "AUD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 1.34
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 3.25
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": 1.69
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 1.7
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 2.62
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": 1.04
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": 1.56
+          }
+        },
+        {
+          "base": "NZD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 2.38
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 1.69
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": 0.13
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": 0.14
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 1.06
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -0.52
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -1.56
+          }
+        },
+        {
+          "base": "CAD",
+          "quote": "CHF",
+          "value": {
+            "state": "available",
+            "value": 0.82
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "USD",
+          "value": {
+            "state": "available",
+            "value": 0.87
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "EUR",
+          "value": {
+            "state": "available",
+            "value": -0.69
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "GBP",
+          "value": {
+            "state": "available",
+            "value": -0.68
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "JPY",
+          "value": {
+            "state": "available",
+            "value": 0.24
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "AUD",
+          "value": {
+            "state": "available",
+            "value": -1.34
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "NZD",
+          "value": {
+            "state": "available",
+            "value": -2.38
+          }
+        },
+        {
+          "base": "CHF",
+          "quote": "CAD",
+          "value": {
+            "state": "available",
+            "value": -0.82
+          }
+        }
+      ],
+      "correlations": {
+        "periods60": {
+          "state": "available",
+          "edges": [
+            {
+              "left": "USD",
+              "right": "EUR",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "GBP",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "JPY",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "USD",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "GBP",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "JPY",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "EUR",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "JPY",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "GBP",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "AUD",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "JPY",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "AUD",
+              "right": "NZD",
+              "value": 0.12
+            },
+            {
+              "left": "AUD",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "AUD",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "NZD",
+              "right": "CAD",
+              "value": 0.12
+            },
+            {
+              "left": "NZD",
+              "right": "CHF",
+              "value": 0.12
+            },
+            {
+              "left": "CAD",
+              "right": "CHF",
+              "value": 0.12
+            }
+          ]
+        },
+        "periods120": {
+          "state": "unavailable",
+          "reason": "Correlation window not available from source"
+        }
+      }
+    }
+  ],
+  "selectedObservationId": "currency_5h_v3_obs_d2c262cb754471d54eac481ca97aa0a001f4565cb516e5bbe3c6a57a605e26d7",
+  "contexts": {
+    "volatility": {
+      "state": "unavailable",
+      "reason": "No eligible weekly volatility held"
+    },
+    "rates": [
+      {
+        "currency": "USD",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      },
+      {
+        "currency": "EUR",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      },
+      {
+        "currency": "GBP",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      },
+      {
+        "currency": "JPY",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      },
+      {
+        "currency": "AUD",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      },
+      {
+        "currency": "NZD",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      },
+      {
+        "currency": "CAD",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      },
+      {
+        "currency": "CHF",
+        "state": "unavailable",
+        "reason": "No eligible rates context held"
+      }
+    ],
+    "cot": [
+      {
+        "currency": "USD",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      },
+      {
+        "currency": "EUR",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      },
+      {
+        "currency": "GBP",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      },
+      {
+        "currency": "JPY",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      },
+      {
+        "currency": "AUD",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      },
+      {
+        "currency": "NZD",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      },
+      {
+        "currency": "CAD",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      },
+      {
+        "currency": "CHF",
+        "state": "unavailable",
+        "reason": "No eligible CoT context held"
+      }
+    ]
+  },
+  "coverage": {
+    "availablePeriods": 2,
+    "returnedPeriods": 2,
+    "skippedMalformed": null,
+    "revisionPolicy": "latest-stored-revisions"
+  },
+  "freshness": "unverified"
+}

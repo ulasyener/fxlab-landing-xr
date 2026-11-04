@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fxlab landing · MR</title>
+<style>
+@font-face{font-family:'Manrope';font-weight:500;src:url(fonts/manrope-latin-500-normal.woff2) format('woff2')}
+@font-face{font-family:'Manrope';font-weight:700;src:url(fonts/manrope-latin-700-normal.woff2) format('woff2')}
+@font-face{font-family:'Manrope';font-weight:800;src:url(fonts/manrope-latin-800-normal.woff2) format('woff2')}
+@font-face{font-family:'Kode Mono';font-weight:400;src:url(fonts/kode-mono-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:'Kode Mono';font-weight:600;src:url(fonts/kode-mono-latin-600-normal.woff2) format('woff2')}
+:root{--bg:#16152b;--ink:#eceaf6;--muted:#a7a2c9;--pink:#e2a8ee;--card:#232042}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Manrope',system-ui,sans-serif;overflow:hidden}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;left:16px;right:16px;bottom:16px;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;pointer-events:none}
+#hud>*{pointer-events:auto}
+.info{background:#232042e6;border:1px solid #493a5f;border-radius:16px;padding:12px 16px;max-width:620px}
+.info b{font-weight:800}
+.info small{display:block;color:var(--muted);font-family:'Kode Mono',monospace;font-size:12px;margin-top:4px;line-height:1.5}
+#enter{font:800 16px 'Manrope',sans-serif;letter-spacing:.5px;color:#1b1830;background:var(--pink);border:0;border-radius:999px;padding:16px 32px;cursor:pointer;box-shadow:0 0 32px #e2a8ee66}
+#enter:disabled{background:#493a5f;color:var(--muted);box-shadow:none;cursor:default}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="hud">
+  <div class="info"><b>fxlab · landing L1</b> — parallel MR prototype (not Barış's app)<small id="status">Loading…</small></div>
+  <button id="enter" disabled>Checking MR…</button>
+</div>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
