@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '21';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '22';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -895,7 +895,7 @@ deskItem.visible = false;
 
 const DIO_FOOT = .40;                                                    // diorama width incl. halos (dio units)
 // tilt presets on the table; the turn (state.dioYaw) works in all of them. They turn only the contents: the tank and its water stay level
-const TABLE_VIEWS = {top:{tilt:Math.PI/2, label:'TOP'}, front:{tilt:0, label:'FRONT'}, persp:{tilt:.35, label:'PERSP'}};
+const TABLE_VIEWS = {top:{tilt:Math.PI/2, label:'TOP'}, front:{tilt:0, label:'FRONT'}, persp:{tilt:0, label:'PERSP'}};
 const tableView = () => TABLE_VIEWS[state.dioView] || TABLE_VIEWS.persp;
 const dioTargetQ = new THREE.Quaternion(), dioEuler = new THREE.Euler(0,0,0,'XYZ');
 const dioWindowPose = {pos:dio.position.clone(), rotX:dio.rotation.x, scale:dio.scale.x};
@@ -915,6 +915,7 @@ function tableTargetQ(){ dioEuler.set(tableView().tilt,state.dioYaw||0,0,'XYZ');
 function setDioClip(on){ dio.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = on ? winPlanes : null; m.needsUpdate = true; } }); }
 function dioToTable(){
   state.dioOnTable = true; deskItem.visible = true; holder3D.add(dio);
+  if (state.dioQ || state.dioView!=='persp') { state.dioQ = null; state.dioView = 'persp'; tableViewP.dirty = true; }   // always arrives level: coins' zero on the water surface
   const n = Math.min(DESK.maxN,state.dioN||1);
   state.dioN = n; state.dioI = Math.min(DESK.cols-n,state.dioI ?? Math.floor((DESK.cols-n)/2)); state.dioJ = Math.min(DESK.rows-n,state.dioJ ?? DESK.rows-n);
   layoutDeskItem(state.dioI,state.dioJ,n,true); setDioClip(false); dioCardP.dirty = true;
