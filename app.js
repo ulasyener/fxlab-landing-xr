@@ -96,6 +96,7 @@ const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth,innerHeight);
 renderer.xr.enabled = true;
+renderer.localClippingEnabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 renderer.xr.setFramebufferScaleFactor(1.2);
 document.getElementById('stage').appendChild(renderer.domElement);
@@ -112,6 +113,11 @@ const boardRoot = new THREE.Group(); boardRoot.position.set(0,1.4,0); scene.add(
 const board = new THREE.Group(); boardRoot.add(board);           // everything that hides with the eye button
 const fixed = new THREE.Group(); boardRoot.add(fixed);           // bottom bar + toast stay visible
 const panels = [];
+// Diorama window: a hole through the board, drop and card; the diorama sits in a box behind it.
+const WIN = {x:457.5, y:155.5, w:607, h:448, r:16, depth:.52, fill:1.45};   // fill: diorama scale inside the box
+function cutWindow(ctx,ox,oy){ ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+  rr(ctx,WIN.x-ox,WIN.y-oy,WIN.w,WIN.h,WIN.r); ctx.fill(); ctx.restore(); }
+const inWindow = (bx,by) => bx>=WIN.x && bx<=WIN.x+WIN.w && by>=WIN.y && by<=WIN.y+WIN.h;
 let order = 0;
 
 function panel({x,y,w,h,z=0,margin=0,res=2,draw,fps=0,parent=board,name}){
@@ -155,6 +161,7 @@ panel({name:'board',x:0,y:0,w:BW,h:BH,margin:50,res:1,z:0,draw(ctx){
   rr(ctx,0,0,BW,BH,48); const g = ctx.createLinearGradient(0,0,0,BH); g.addColorStop(0,'#211c3a'); g.addColorStop(1,'#16142b');
   ctx.fillStyle = g; ctx.fill(); ctx.restore();
   rr(ctx,0,0,BW,BH,48); ctx.lineWidth = 2; ctx.strokeStyle = '#c99be0'; ctx.stroke();
+  cutWindow(ctx,0,0);
 }});
 for (const [x,w,num,name] of [[40,340,'01','TIME'],[410,700,'02','CHARTS'],[1140,340,'03','GAME']]) {
   panel({name:'drop '+name,x,y:40,w,h:790,res:1.5,z:.003,draw(ctx){
@@ -163,6 +170,7 @@ for (const [x,w,num,name] of [[40,340,'01','TIME'],[410,700,'02','CHARTS'],[1140
     ctx.fillStyle = g; ctx.fill(); ctx.restore();
     rr(ctx,0,0,w,790,44); ctx.lineWidth = 1.5; ctx.strokeStyle = '#4b3d63'; ctx.stroke();
     groupLabel(ctx,num,name);
+    if (name==='CHARTS') cutWindow(ctx,x,40);
   }});
 }
 
@@ -230,6 +238,8 @@ panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,draw(ctx){
   ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
   text(ctx,'DIORAMA',25,32,{font:'800 14px Manrope',color:C.muted,ls:'.4px'});
   text(ctx,'3D',614,32,{font:'600 14px "Kode Mono"',color:C.muted,align:'right'});
+  cutWindow(ctx,441.5,103.5);
+  rr(ctx,WIN.x-441.5,WIN.y-103.5,WIN.w,WIN.h,WIN.r); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
 }});
 const loop = {obs:[], step:2.2, hold:1.6, idx:0};
 function rebuildLoop(){ loop.obs = obsOf(state.horizon).slice(-7); }
@@ -350,7 +360,25 @@ function toast(msg,ms=3200){ toastMsg = msg; toastUntil = performance.now()+ms; 
 // ---------------------------------------------------------------- 3D diorama (Barış's data)
 const DIO = {R:.17, U:.06, clamp:2.2};
 const dio = new THREE.Group(); dio.name = 'diorama';
-dio.position.set((761-BW/2)*S,(BH/2-375)*S,.17); dio.rotation.x = .42; board.add(dio);   // tilted toward the viewer, as drawn in Figma
+dio.position.set((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-WIN.depth/2); dio.rotation.x = .42; dio.scale.setScalar(WIN.fill); board.add(dio);   // inside the window box, tilted toward the viewer
+// window box: open front, walls in the card's colours
+{ const W = WIN.w*S, H = WIN.h*S, D = WIN.depth, cx = (WIN.x+WIN.w/2-BW/2)*S, cy = (BH/2-(WIN.y+WIN.h/2))*S;
+  const wall = (w,h,color,pos,rot) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color,toneMapped:false}));
+    m.position.set(cx+pos[0],cy+pos[1],pos[2]); m.rotation.set(...rot); board.add(m); return m; };
+  wall(W,H,'#14132a',[0,0,-D],[0,0,0]);                         // back
+  wall(W,D,'#1b1934',[0,-H/2,-D/2],[-Math.PI/2,0,0]);           // floor
+  wall(W,D,'#242150',[0,H/2,-D/2],[Math.PI/2,0,0]);             // ceiling
+  wall(D,H,'#1e1c3e',[-W/2,0,-D/2],[0,Math.PI/2,0]);            // left
+  wall(D,H,'#1e1c3e',[W/2,0,-D/2],[0,-Math.PI/2,0]);            // right
+}
+// clip everything in the diorama to the box (planes in board space, moved to world space every frame)
+const winPlanesLocal = (()=>{ const l = (WIN.x-BW/2)*S, r = (WIN.x+WIN.w-BW/2)*S, t = (BH/2-WIN.y)*S, b = (BH/2-WIN.y-WIN.h)*S;
+  return [new THREE.Plane(new THREE.Vector3(1,0,0),-l), new THREE.Plane(new THREE.Vector3(-1,0,0),r),
+          new THREE.Plane(new THREE.Vector3(0,-1,0),t), new THREE.Plane(new THREE.Vector3(0,1,0),-b),
+          new THREE.Plane(new THREE.Vector3(0,0,-1),0), new THREE.Plane(new THREE.Vector3(0,0,1),WIN.depth)]; })();
+const winPlanes = winPlanesLocal.map(p=>p.clone());
+function updateWindowClip(){ board.updateMatrixWorld(); winPlanesLocal.forEach((p,i)=>winPlanes[i].copy(p).applyMatrix4(board.matrixWorld)); }
+function clipToWindow(root){ root.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = winPlanes; m.needsUpdate = true; } }); }
 function ringLine(r,y,color,opacity,dashed){
   const pts = []; for (let i=0;i<=128;i++){ const a = i/128*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(a)*r,y,Math.sin(a)*r)); }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -378,24 +406,27 @@ const marbles = CURRENCIES.map((cur,i)=>{
   const g = new THREE.Group(); g.position.set(x,0,z); dio.add(g);
   const mat = new THREE.MeshStandardMaterial({color:'#eef3ff',emissive:'#5d86ff',emissiveIntensity:.6,roughness:.2,metalness:.1});
   const ball = new THREE.Group(); g.add(ball);
-  const sphere = new THREE.Mesh(new THREE.SphereGeometry(.0105,32,16),mat); ball.add(sphere);   // fallback until the coin loads
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(.02,32,16),mat); ball.add(sphere);   // fallback until the coin loads
   const spin = new THREE.Group(); ball.add(spin);                                                // coin turns on its vertical axis
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:UP,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:.9}));
-  glow.scale.setScalar(.065); ball.add(glow);
-  const hit = new THREE.Mesh(new THREE.SphereGeometry(.028,12,8),new THREE.MeshBasicMaterial({visible:false}));
+  glow.scale.setScalar(.11); ball.add(glow);
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false}));
   hit.userData.currency = cur; ball.add(hit);
-  const halo = new THREE.Mesh(new THREE.RingGeometry(.009,.0112,40),new THREE.MeshBasicMaterial({color:UP,transparent:true,opacity:.8,side:THREE.DoubleSide,toneMapped:false}));
+  const halo = new THREE.Mesh(new THREE.RingGeometry(.018,.0215,48),new THREE.MeshBasicMaterial({color:UP,transparent:true,opacity:.8,side:THREE.DoubleSide,toneMapped:false}));
   halo.rotation.x = -Math.PI/2; g.add(halo);
-  const sel = new THREE.Mesh(new THREE.TorusGeometry(.019,.0012,8,48),new THREE.MeshBasicMaterial({color:C.pink,toneMapped:false}));
+  const sel = new THREE.Mesh(new THREE.TorusGeometry(.03,.0014,8,64),new THREE.MeshBasicMaterial({color:C.pink,toneMapped:false}));
   sel.rotation.x = Math.PI/2; ball.add(sel);
   const n = 14, pos = new Float32Array(n*3);
   const column = new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(pos,3)),
-    new THREE.PointsMaterial({map:glowTex,color:UP,size:.006,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+    new THREE.PointsMaterial({map:glowTex,color:UP,size:.008,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
   g.add(column);
   return {cur,g,ball,sphere,spin,coin:null,phase:i*.7,mat,glow,hit,halo,sel,column,n,y:0};
 });
 const zAt = (o,cur) => { const r = o && rowOf(o,cur); return r ? Math.max(-DIO.clamp,Math.min(DIO.clamp,r.strengthZ)) : 0; };
+clipToWindow(dio); dio.traverse(o=>{ o.renderOrder = -1; });   // drawn before the panels, seen through the window
+
 function updateDiorama(t){
+  updateWindowClip();
   const n = loop.obs.length;
   if (n>1 && state.playing) { const L = loop.step*(n-1)+loop.hold, s = (t%L)/loop.step; loop.idx = Math.min(n-1,s); }
   else loop.idx = n-1;
@@ -416,8 +447,8 @@ function updateDiorama(t){
 }
 
 // ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
-const COIN = {dia:.021, spin:.6, env:.45};      // diameter in metres (same as the old sphere), spin rad/s, reflection strength
-const coinEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.12).texture;
+const COIN = {dia:.04, spin:.6, env:.4};        // diameter in metres, spin rad/s, reflection strength
+const coinEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.04).texture;
 const ktx2 = new KTX2Loader().setTranscoderPath('./vendor/addons/libs/basis/').detectSupport(renderer);
 const gltfLoader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
 for (const m of marbles) {
@@ -429,7 +460,7 @@ for (const m of marbles) {
     holder.scale.setScalar(COIN.dia/Math.max(size.x,size.z));
     holder.rotation.x = Math.PI/2;                            // coin lies flat in the file; stand it upright
     coin.traverse(o => { if (o.isMesh) { o.material.envMap = coinEnv; o.material.envMapIntensity = COIN.env; } });
-    m.spin.add(holder); m.coin = holder; m.sphere.visible = false;
+    m.spin.add(holder); m.coin = holder; m.sphere.visible = false; clipToWindow(holder);
   }, undefined, err => console.warn('coin', m.cur, err));
 }
 
@@ -457,6 +488,7 @@ function place(){
 
 // ---------------------------------------------------------------- input: pinch-ray, poke, mouse
 const raycaster = new THREE.Raycaster();
+const holePanels = new Set(['board','drop CHARTS','diorama card']);
 function targets(){ const list = []; for (const p of panels) if (p.mesh.visible && p.mesh.parent.visible) list.push(p.mesh);
   if (dio.visible && board.visible) for (const m of marbles) list.push(m.hit); return list; }
 function pick(origin,dir){
@@ -465,6 +497,7 @@ function pick(origin,dir){
     if (h.object.userData.currency) return {currency:h.object.userData.currency,point:h.point,distance:h.distance};
     const p = h.object.userData.panel, {lx,ly,region} = p.hit(h.uv);
     if (lx<0||ly<0||lx>p.w||ly>p.h) continue;           // transparent glow margin
+    if (holePanels.has(p.name) && inWindow(p.x+lx,p.y+ly)) continue;   // looking through the diorama window
     if (p.name==='toast') continue;
     return {panel:p,region,point:h.point,distance:h.distance};
   }
