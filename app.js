@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '20';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '21';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -655,6 +655,7 @@ const linkFlow = additivePoints(LINK.flowSize,pairs.length*(LINK.maxFlow+2)); di
 const beadJitter = Float32Array.from({length:LINK.maxBeads*3},()=>Math.random()-.5);
 clipToWindow(dio); dio.traverse(o=>{ o.renderOrder = -1; });   // drawn before the panels, seen through the window
 
+const coinUpQ = new THREE.Quaternion();
 function updateDiorama(t){
   updateWindowClip();
   waterUniforms.uTime.value = t*WATER.speed;
@@ -665,7 +666,9 @@ function updateDiorama(t){
   const i0 = Math.floor(loop.idx), i1 = Math.min(n-1,i0+1), f = loop.idx-i0;
   const gap = loop.obs[i1]?.continuity==='gap', k = gap ? (f<.5?0:1) : f*f*(3-2*f);
   const dt = Math.min(.1,Math.max(0,t-(updateDiorama.last ?? t))); updateDiorama.last = t;
+  coinUpQ.copy(dio.quaternion).invert();                          // coins float upright in the level water, whatever way the contents are turned
   for (const m of marbles) {
+    m.ball.quaternion.copy(coinUpQ);
     const z = zAt(loop.obs[i0],m.cur)*(1-k)+zAt(loop.obs[i1],m.cur)*k;
     const y = z*DIO.U; m.ball.position.y = y; m.y = y; m.z = z;
     const col = z>=0 ? UP : DOWN;
