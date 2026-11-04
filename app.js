@@ -344,7 +344,7 @@ toastP.mesh.visible = false;
 function toast(msg,ms=3200){ toastMsg = msg; toastUntil = performance.now()+ms; toastP.mesh.visible = true; toastP.dirty = true; }
 
 // ---------------------------------------------------------------- 3D diorama (Barış's data)
-const DIO = {R:.17, U:.075, clamp:2.2};
+const DIO = {R:.17, U:.06, clamp:2.2};
 const dio = new THREE.Group(); dio.name = 'diorama';
 dio.position.set((761-BW/2)*S,(BH/2-375)*S,.17); dio.rotation.x = .42; board.add(dio);   // tilted toward the viewer, as drawn in Figma
 function ringLine(r,y,color,opacity,dashed){
