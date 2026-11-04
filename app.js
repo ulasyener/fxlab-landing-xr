@@ -7,8 +7,9 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {KTX2Loader} from 'three/addons/loaders/KTX2Loader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '16';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '17';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -1159,6 +1160,13 @@ function release(source,hit){
   if (hit?.panel===pr.panel && hit.region?.id===pr.id) hit.region.onTap();
 }
 const sources = [];
+// visible hands in the headset: Meta-style hand mesh (WebXR generic-hand), translucent in the palette ink with a soft pink rim
+const HAND = {color:C.ink, opacity:.32, rim:C.pink, rimA:.9};
+const handFactory = new XRHandModelFactory(); handFactory.setPath('assets/hands/');
+const handMat = new THREE.MeshStandardMaterial({color:HAND.color, transparent:true, opacity:HAND.opacity, roughness:.6, metalness:0, depthWrite:false});
+handMat.onBeforeCompile = sh=>{ sh.uniforms.uRim = {value:new THREE.Color(HAND.rim)}; sh.uniforms.uRimA = {value:HAND.rimA};
+  sh.fragmentShader = 'uniform vec3 uRim; uniform float uRimA;\n' + sh.fragmentShader.replace('#include <dithering_fragment>',
+    '#include <dithering_fragment>\n  float fr = pow(1.0-abs(dot(normalize(normal),normalize(vViewPosition))),2.0);\n  gl_FragColor.rgb += uRim*fr*uRimA; gl_FragColor.a = max(gl_FragColor.a, fr*uRimA*.8);'); };
 const rayMat = new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.55});
 const dotGeo = new THREE.SphereGeometry(.004,12,8), dotMat = new THREE.MeshBasicMaterial({color:'#fff3ff'});
 for (let i=0;i<2;i++){
@@ -1167,6 +1175,7 @@ for (let i=0;i<2;i++){
   controller.add(ray);
   const cursor = new THREE.Mesh(dotGeo,dotMat); scene.add(cursor);
   const hand = renderer.xr.getHand(i); scene.add(hand);
+  hand.add(handFactory.createHandModel(hand,'mesh',obj=>{ obj.traverse(o=>{ if (o.isMesh) { o.material = handMat; o.renderOrder = 10; } }); }));
   const tip = new THREE.Mesh(dotGeo,new THREE.MeshBasicMaterial({color:C.pink})); scene.add(tip);
   const s = {controller,ray,cursor,hand,tip,hover:null,pressed:null,grab:false,hit:null,poke:{latched:false}};
   controller.addEventListener('selectstart',()=>press(s,s.hit));

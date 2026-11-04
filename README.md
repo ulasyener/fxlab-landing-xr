@@ -11,4 +11,4 @@ It does not change or depend on the fxlab code; it only reads snapshots of fxlab
 - NEWS and SIMULATOR show the sample content from Figma; they have no data source yet.
 - Diorama currencies are 3D coins (`assets/coins/<CODE>.glb`, Substance export packed with KTX2 + meshopt). Size, spin speed and reflection strength sit in `COIN` in `app.js`.
 
-Fonts: Manrope, Kode Mono (SIL OFL, via Fontsource). Icons: Phosphor (MIT). three.js r170 (MIT), incl. GLTFLoader, KTX2Loader + Basis transcoder, meshopt decoder, RoomEnvironment.
+Fonts: Manrope, Kode Mono (SIL OFL, via Fontsource). Icons: Phosphor (MIT). three.js r170 (MIT), incl. GLTFLoader, KTX2Loader + Basis transcoder, meshopt decoder, RoomEnvironment, XRHandModelFactory. Hand meshes: WebXR Input Profiles generic-hand (MIT).
