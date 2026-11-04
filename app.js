@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '17';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '18';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -39,7 +39,7 @@ const rowOf = (o,c) => o.rows.find(r=>r.currency===c);
 const state = {
   horizon: HORIZONS.map(h=>h.id).find(h=>data[h]),
   currency: 'USD', hidden: false, scale: 1, desk: false, playing: true, allLinks: false,
-  dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true,
+  dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true, gridLift: 0,
   dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
@@ -368,7 +368,7 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
   ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; place(); placeGrid(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -917,8 +917,8 @@ function renderView(now){
 }
 
 // grid controls: a small strip at the near-left corner, tilted toward the user
-const deskCtlP = panel({name:'grid controls',x:0,y:0,w:250,h:52,margin:8,parent:deskGrid,z:0,draw(ctx,p){
-  rr(ctx,0,0,250,52,26); ctx.fillStyle = 'rgba(35,32,66,.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+const deskCtlP = panel({name:'grid controls',x:0,y:0,w:350,h:52,margin:8,parent:deskGrid,z:0,draw(ctx,p){
+  rr(ctx,0,0,350,52,26); ctx.fillStyle = 'rgba(35,32,66,.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
   [['grid','GRID',state.grid!==false],['room','ROOM',state.room!==false]].forEach(([id,label,on],k)=>{
     const x = 10+k*120, y = 9, w = 110, h = 34, hot = p.hover===id;
     ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?14:8; }
@@ -927,8 +927,17 @@ const deskCtlP = panel({name:'grid controls',x:0,y:0,w:250,h:52,margin:8,parent:
     text(ctx,label,x+w/2,y+h/2+1,{font:'800 13px Manrope',color:on?C.dark:(hot?C.pink:C.ink),align:'center',ls:'.5px'});
     p.region(id,x,y,w,h,()=>{ state[id] = !(state[id]!==false); applyDeskToggles(); p.dirty = true; });
   });
+  // grid height: lower / raise in 5 cm steps (kept with Save)
+  circleButton(ctx,p,'gridDown',272,26,34,'caret-down',()=>liftGrid(-GRID_STEP));
+  circleButton(ctx,p,'gridUp',320,26,34,'caret-up',()=>liftGrid(GRID_STEP));
 }});
-deskCtlP.mesh.position.set(-DESK_W/2+.135,.02,DESK_D/2+.05); deskCtlP.mesh.rotation.x = -1.05;
+const GRID_STEP = .05, GRID_LIFT = [-.6,.3];   // metres: step, lowest / highest offset from the table or default height
+function liftGrid(d){
+  const v = Math.min(GRID_LIFT[1],Math.max(GRID_LIFT[0],Math.round(((state.gridLift||0)+d)*100)/100));
+  deskGrid.position.y += v-(state.gridLift||0); state.gridLift = v;
+  toast(v===0?'Grid at table height':`Grid ${v>0?'+':'−'}${Math.round(Math.abs(v)*100)} cm`);
+}
+deskCtlP.mesh.position.set(-DESK_W/2+.185,.02,DESK_D/2+.05); deskCtlP.mesh.rotation.x = -1.05;
 function applyDeskToggles(){ deskLines.visible = state.grid!==false; roomGroup.visible = state.room!==false; }
 
 // room scan: Quest's scene mesh (mesh-detection) or, without it, detected plane outlines — thin light edges
@@ -990,6 +999,7 @@ function placeGrid(){
     deskGrid.position.copy(head).addScaledVector(dir,DESK.ahead); deskGrid.position.y = DESK.tableH;
     deskGrid.rotation.set(0,Math.atan2(-dir.x,-dir.z),0); gridOnTable = false;
   } else { deskGrid.position.set(0,1.0,.62); deskGrid.rotation.set(0,0,0); gridOnTable = false; }   // desktop preview
+  deskGrid.position.y += state.gridLift||0;
   gridPlacedAt = performance.now();
 }
 placeGrid();
