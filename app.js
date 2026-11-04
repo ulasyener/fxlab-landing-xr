@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '24';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '25';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -42,6 +42,7 @@ const state = {
   dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true, gridLift: 0, gridLinked: false, dioQ: null,
   dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
+  stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
@@ -368,12 +369,12 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
-  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; place(); placeGrid(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; place(); placeGrid(); toast('Back to the default layout'); }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
-  ['stick','joystick','Move the landing',()=>{ state.stick = !state.stick; stickP.mesh.visible = state.stick; toast(state.stick?'Joystick · push to move forward / back / sideways, slide to lift':'Joystick hidden'); }],
+  ['stick','joystick','Move the landing',()=>{ state.stick = !state.stick; stickP.mesh.visible = turnP.mesh.visible = state.stick; toast(state.stick?(state.stickTurn?STICK_TIP.turn:STICK_TIP.move):'Joystick hidden'); }],
   ['exit','x-circle','Exit MR',()=>{ const s = renderer.xr.getSession(); s ? s.end() : toast('Not in MR'); }],
 ];
 const barP = panel({name:'bottom bar',x:410,y:860,w:700,h:104.6,margin:20,parent:fixed,z:.006,draw(ctx,p){
@@ -384,10 +385,12 @@ const barP = panel({name:'bottom bar',x:410,y:860,w:700,h:104.6,margin:20,parent
   BAR.forEach(([id,ic,,fn],i)=>circleButton(ctx,p,id,23.85+34.24+i*step,18.08+34.24,68.47,id==='stick'&&state.stick?'joystick-fill':ic,fn,
     {iconSize:28.8,iconColor:id==='stick'&&state.stick?C.pink:C.ink}));
 }});
-// ---- joystick: move the landing like a mobile FPS thumbstick (left of the bottom bar, shown with the joystick button)
+// ---- joystick: move the landing like a mobile FPS thumbstick (right of the bottom bar, shown with the joystick button)
 // pad: up = away from you, down = toward you, sideways = left / right · slider: up / down · speed grows with the push, springs back on release
-const STICK = {speed:.35, lift:.25, dead:.12, curve:1.6, pad:{cx:68,cy:62.5,r:46,knob:17}, rail:{x:176,y0:20,y1:105,knob:13}};
-const stickP = panel({name:'joystick',x:168,y:850,w:222,h:125,margin:20,parent:fixed,z:.006,draw(ctx,p){
+// angle mode (button right of the joystick): sideways = turn left / right, up / down = tilt the top away / toward you · slider still lifts
+const STICK = {speed:.35, lift:.25, turn:.8, tilt:.6, tiltMax:Math.PI/2, dead:.12, curve:1.6, pad:{cx:68,cy:62.5,r:46,knob:17}, rail:{x:176,y0:20,y1:105,knob:13}};
+const STICK_TIP = {move:'Joystick · push to move forward / back / sideways, slide to lift', turn:'Joystick · angles: sideways to turn, up / down to tilt, slide to lift'};
+const stickP = panel({name:'joystick',x:1130,y:850,w:222,h:125,margin:20,parent:fixed,z:.006,draw(ctx,p){
   ctx.save(); ctx.shadowColor = '#0b0a18'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 5;
   rr(ctx,0,0,222,125,44); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
   rr(ctx,0,0,222,125,44); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
@@ -399,6 +402,8 @@ const stickP = panel({name:'joystick',x:168,y:850,w:222,h:125,margin:20,parent:f
   ctx.lineWidth = padOn||padHot ? 2 : 1.5; ctx.strokeStyle = padOn||padHot ? C.pink : '#4a4470'; ctx.stroke(); ctx.restore();
   ctx.setLineDash([1.4,4]); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(167,162,201,.45)';
   ctx.beginPath(); ctx.arc(cx,cy,r*.62,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+  const turn = state.stickTurn;
+  if (turn) drawIcon(ctx,'arrows-clockwise',padOn?C.pink:'rgba(167,162,201,.35)',cx,cy,22);   // angle mode mark under the knob
   [['caret-up',0,-1],['caret-down',0,1],['caret-left',-1,0],['caret-right',1,0]].forEach(([ic,dx,dy])=>{
     const lit = padOn && (dx ? Math.sign(v[0])===dx && Math.abs(v[0])>STICK.dead : Math.sign(-v[1])===dy && Math.abs(v[1])>STICK.dead);
     drawIcon(ctx,ic,lit?C.pink:C.dim,cx+dx*r*.8,cy+dy*r*.8,13); });
@@ -417,7 +422,16 @@ const stickP = panel({name:'joystick',x:168,y:850,w:222,h:125,margin:20,parent:f
   glowDot(ctx,x,ly,railOn?8:6.5,railOn?'#fff3ff':'#d9d3f2',railOn?'rgba(231,168,240,.85)':'rgba(231,168,240,.35)');
   p.region('lift',x-24,y0-10,48,y1-y0+20,()=>{});
 }});
-stickP.mesh.visible = state.stick;
+// angle button: right of the joystick, switches the pad between moving and turning / tilting the landing
+const turnP = panel({name:'joystick angles',x:1372,y:860,w:104.6,h:104.6,margin:20,parent:fixed,z:.006,draw(ctx,p){
+  ctx.save(); ctx.shadowColor = '#0b0a18'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 5;
+  rr(ctx,0,0,104.6,104.6,52.3); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
+  rr(ctx,0,0,104.6,104.6,52.3); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+  circleButton(ctx,p,'turn',52.3,52.3,68.47,state.stickTurn?'arrows-clockwise-fill':'arrows-clockwise',
+    ()=>{ state.stickTurn = !state.stickTurn; stickP.dirty = true; toast(state.stickTurn?STICK_TIP.turn:STICK_TIP.move); },
+    {iconSize:28.8,iconColor:state.stickTurn?C.pink:C.ink});
+}});
+stickP.mesh.visible = turnP.mesh.visible = state.stick;
 const stickPlane = new THREE.Plane(), stickHit = new THREE.Vector3(), stickN = new THREE.Vector3();
 function stickStart(s,part){
   stickP.mesh.updateMatrixWorld();                                       // freeze the pad where it is: the landing moves away under the hand
@@ -436,26 +450,36 @@ function stickFromLocal(dr,pt){                                          // pane
   else { const {y0,y1} = STICK.rail; dr.v[2] = Math.max(-1,Math.min(1,-(py-(y0+y1)/2)/((y1-y0)/2*.62))); }
   stickP.dirty = true;
 }
-const stickF = new THREE.Vector3(), stickR = new THREE.Vector3();
+const stickF = new THREE.Vector3(), stickR = new THREE.Vector3(), stickUp = new THREE.Vector3(0,1,0), stickE = new THREE.Euler();
 const stickCurve = a => { const m = Math.abs(a); return m<STICK.dead ? 0 : Math.sign(a)*Math.pow((m-STICK.dead)/(1-STICK.dead),STICK.curve); };
 function updateStick(dt){
   const dr = sources.find(s=>s.drag?.kind==='stick')?.drag; if (!dr || !dt) return;
-  const r = stickCurve(dr.v[0])*STICK.speed*dt, f = stickCurve(dr.v[1])*STICK.speed*dt, u = stickCurve(dr.v[2])*STICK.lift*dt;
+  const turn = state.stickTurn && dr.part==='pad';
+  const r = turn ? 0 : stickCurve(dr.v[0])*STICK.speed*dt, f = turn ? 0 : stickCurve(dr.v[1])*STICK.speed*dt, u = stickCurve(dr.v[2])*STICK.lift*dt;
+  const rot = state.boardRot || (state.boardRot = [0,0]);
+  if (turn) {
+    const a = -stickCurve(dr.v[0])*STICK.turn*dt;                         // push right = turn right
+    const t0 = rot[1], t1 = Math.max(-STICK.tiltMax,Math.min(STICK.tiltMax,t0-stickCurve(dr.v[1])*STICK.tilt*dt));   // push up = top away from you
+    if (a) { boardRoot.rotateOnWorldAxis(stickUp,a); rot[0] += a; }
+    if (t1!==t0) { boardRoot.rotateX(t1-t0); rot[1] = t1; }
+  }
   if (!r && !f && !u) return;
-  stickF.set(0,0,-1).applyQuaternion(boardRoot.quaternion); stickF.y = 0;  // away from you, level
-  if (stickF.lengthSq()<1e-6) return; stickF.normalize(); stickR.set(-stickF.z,0,stickF.x);
+  stickE.setFromQuaternion(boardRoot.quaternion,'YXZ');                   // the landing's heading, whatever its tilt
+  stickF.set(-Math.sin(stickE.y),0,-Math.cos(stickE.y)); stickR.set(-stickF.z,0,stickF.x);   // away from you / to the right, level
   boardRoot.position.addScaledVector(stickR,r).addScaledVector(stickF,f); boardRoot.position.y += u;
-  const o = state.boardOff || (state.boardOff = [0,0,0]); o[0] += r; o[1] += u; o[2] += f;
+  const b = stickE.y-rot[0], bx = Math.cos(b), bz = -Math.sin(b);         // offsets are kept in the default spot's frame (place() applies them there)
+  const dx = stickR.x*r+stickF.x*f, dz = stickR.z*r+stickF.z*f;
+  const o = state.boardOff || (state.boardOff = [0,0,0]); o[0] += dx*bx+dz*bz; o[1] += u; o[2] += dx*-Math.sin(b)+dz*-Math.cos(b);
 }
 
-// FPS: bottom-right corner of the landing, aligned with the GAME column
+// FPS: bottom-left corner of the landing, aligned with the TIME column
 const FPS = {hist:new Array(120).fill(null), acc:0, n:0, t0:0, last:0, now:0, ms:0, target:60};   // 120 samples × 0.25 s = last 30 s
 function fpsTick(now){
   if (FPS.last) { const dt = now-FPS.last; if (dt>0 && dt<1000) { FPS.acc += dt; FPS.n++; } }
   FPS.last = now;
   if (now-FPS.t0>=250 && FPS.n) { FPS.ms = FPS.acc/FPS.n; FPS.now = 1000/FPS.ms; FPS.hist.push(FPS.now); FPS.hist.shift(); FPS.acc = FPS.n = 0; FPS.t0 = now; fpsP.dirty = true; }
 }
-const fpsP = panel({name:'fps',x:1173.5,y:860,w:273,h:104.6,margin:12,z:.006,draw(ctx){
+const fpsP = panel({name:'fps',x:73.5,y:860,w:273,h:104.6,margin:12,z:.006,draw(ctx){
   card(ctx,273,104.6);
   const has = FPS.now>0, low = has && FPS.now<FPS.target*.85, col = low ? C.coral : C.pink;
   text(ctx,'FPS',22,28,{font:'800 13px Manrope',color:C.muted,ls:'.5px'});
@@ -1334,11 +1358,11 @@ function place(){
   boardRoot.scale.setScalar(state.scale);
   if (state.desk) {
     boardRoot.position.copy(head).addScaledVector(dir,.62); boardRoot.position.y = head.y-.5;
-    boardRoot.rotation.set(0,0,0); boardRoot.rotateY(yaw); boardRoot.rotateX(-Math.PI*.3);
   } else {
     boardRoot.position.copy(head).addScaledVector(dir,1.15); boardRoot.position.y = head.y-.1;
-    boardRoot.rotation.set(0,yaw,0);
   }
+  const [turn,tilt] = state.boardRot || [0,0];                            // angles the joystick last left it at
+  boardRoot.rotation.set(0,0,0); boardRoot.rotateY(yaw+turn); boardRoot.rotateX((state.desk?-Math.PI*.3:0)+tilt);
   const [r,u,f] = state.boardOff || [0,0,0];                             // where the joystick last left it
   boardRoot.position.add(new THREE.Vector3(-dir.z,0,dir.x).multiplyScalar(r)).addScaledVector(dir,f); boardRoot.position.y += u;
 }
