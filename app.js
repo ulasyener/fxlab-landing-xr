@@ -8,6 +8,7 @@ import {KTX2Loader} from 'three/addons/loaders/KTX2Loader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 
+const BUILD = '16';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -38,6 +39,7 @@ const state = {
   horizon: HORIZONS.map(h=>h.id).find(h=>data[h]),
   currency: 'USD', hidden: false, scale: 1, desk: false, playing: true, allLinks: false,
   dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true,
+  dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
@@ -238,7 +240,14 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
   g.addColorStop(0,'#2b2852'); g.addColorStop(.55,'#201d40'); g.addColorStop(1,'#16152c');
   ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
   text(ctx,'DIORAMA',25,32,{font:'800 14px Manrope',color:C.muted,ls:'.4px'});
-  text(ctx,'3D',614,32,{font:'600 14px "Kode Mono"',color:C.muted,align:'right'});
+  text(ctx,state.dioOnTable?'2D':'3D',614,32,{font:'600 14px "Kode Mono"',color:C.muted,align:'right'});
+  // while the diorama is on the table the window shows it flat: top ↔ front
+  if (state.dioOnTable) { const x = 118, y = 14, w = 152, h = 34;
+    rr(ctx,x,y,w,h,17); ctx.fillStyle = C.card; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#4b4470'; ctx.stroke();
+    [['top','TOP'],['front','FRONT']].forEach(([id,label],k)=>{ const sx = x+3+k*73, on = state.view2D===id, hot = p.hover==='v2'+id;
+      if (on) { ctx.save(); ctx.shadowColor = C.pink; ctx.shadowBlur = 12; rr(ctx,sx,y+3,73,h-6,14); ctx.fillStyle = C.pink; ctx.fill(); ctx.restore(); }
+      text(ctx,label,sx+36.5,y+h/2+1,{font:'800 12px Manrope',color:on?C.dark:(hot?C.pink:C.ink),align:'center',ls:'.4px'});
+      p.region('v2'+id,sx,y-8,73,h+16,()=>{ state.view2D = id; p.dirty = true; viewDirty = true; }); }); }
   // links toggle: selected coin only ↔ all pairs (neural view)
   { const x = 452, y = 14, w = 128, h = 34, on = state.allLinks, hot = p.hover==='links';
     ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?16:10; }
@@ -356,9 +365,9 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
-  ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = dio.visible = !state.hidden; }],
+  ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
   ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; place(); placeGrid(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -370,6 +379,34 @@ const barP = panel({name:'bottom bar',x:410,y:860,w:700,h:104.6,margin:20,parent
   rr(ctx,0,0,700,104.6,52.3); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
   BAR.forEach(([id,ic,,fn],i)=>circleButton(ctx,p,id,23.85+34.24+i*97.305,18.08+34.24,68.47,ic,fn,{iconSize:28.8}));
 }});
+// FPS: bottom-right corner of the landing, aligned with the GAME column
+const FPS = {hist:new Array(120).fill(null), acc:0, n:0, t0:0, last:0, now:0, ms:0, target:60};   // 120 samples × 0.25 s = last 30 s
+function fpsTick(now){
+  if (FPS.last) { const dt = now-FPS.last; if (dt>0 && dt<1000) { FPS.acc += dt; FPS.n++; } }
+  FPS.last = now;
+  if (now-FPS.t0>=250 && FPS.n) { FPS.ms = FPS.acc/FPS.n; FPS.now = 1000/FPS.ms; FPS.hist.push(FPS.now); FPS.hist.shift(); FPS.acc = FPS.n = 0; FPS.t0 = now; fpsP.dirty = true; }
+}
+const fpsP = panel({name:'fps',x:1173.5,y:860,w:273,h:104.6,margin:12,z:.006,draw(ctx){
+  card(ctx,273,104.6);
+  const has = FPS.now>0, low = has && FPS.now<FPS.target*.85, col = low ? C.coral : C.pink;
+  text(ctx,'FPS',22,28,{font:'800 13px Manrope',color:C.muted,ls:'.5px'});
+  text(ctx,has?`${FPS.ms.toFixed(1)} ms · ${Math.round(FPS.target)} Hz`:'—',60,28.5,{font:'400 13px "Kode Mono"',color:C.dim});
+  text(ctx,has?String(Math.round(FPS.now)):'—',251,30,{font:'600 30px "Kode Mono"',color:low?C.coral:C.ink,align:'right'});
+  const gx = 22, gy = 52, gw = 229, gh = 34, vals = FPS.hist.filter(v=>v!=null);
+  const top = Math.max(FPS.target,...vals)*1.12, Y = v => gy+gh-gh*Math.min(1,v/top), N = FPS.hist.length, X = i => gx+gw*i/(N-1);
+  ctx.setLineDash([1.4,4]); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(167,162,201,.5)';
+  ctx.beginPath(); ctx.moveTo(gx,Y(FPS.target)); ctx.lineTo(gx+gw,Y(FPS.target)); ctx.stroke(); ctx.setLineDash([]);   // display refresh rate
+  ctx.fillStyle = '#4a4470'; ctx.fillRect(gx,gy+gh,gw,1);
+  const i0 = FPS.hist.findIndex(v=>v!=null); if (i0<0 || i0>N-2) return;
+  ctx.beginPath(); for (let i=i0;i<N;i++) i===i0 ? ctx.moveTo(X(i),Y(FPS.hist[i])) : ctx.lineTo(X(i),Y(FPS.hist[i]));
+  ctx.save(); ctx.lineTo(X(N-1),gy+gh); ctx.lineTo(X(i0),gy+gh); ctx.closePath();
+  const g = ctx.createLinearGradient(0,gy,0,gy+gh); g.addColorStop(0,low?'rgba(224,144,126,.35)':'rgba(231,168,240,.32)'); g.addColorStop(1,'rgba(231,168,240,0)');
+  ctx.fillStyle = g; ctx.fill(); ctx.restore();
+  ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.strokeStyle = col;
+  ctx.beginPath(); for (let i=i0;i<N;i++) i===i0 ? ctx.moveTo(X(i),Y(FPS.hist[i])) : ctx.lineTo(X(i),Y(FPS.hist[i])); ctx.stroke(); ctx.restore();
+  glowDot(ctx,X(N-1),Y(FPS.hist[N-1]),3.2,'#fff6ff',low?'rgba(224,144,126,.75)':'rgba(231,168,240,.75)');
+}});
+
 let toastMsg = '', toastUntil = 0;
 const toastP = panel({name:'toast',x:410,y:1025,w:700,h:52,margin:10,parent:fixed,z:.01,draw(ctx){
   if (!toastMsg) return;
@@ -384,15 +421,37 @@ function toast(msg,ms=3200){ toastMsg = msg; toastUntil = performance.now()+ms; 
 const DIO = {R:.17, U:.06, clamp:2.2};
 const dio = new THREE.Group(); dio.name = 'diorama';
 dio.position.set((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-WIN.depth/2); dio.rotation.x = .42; dio.scale.setScalar(WIN.fill); board.add(dio);   // inside the window box, tilted toward the viewer
-// window box: open front, walls in the card's colours
+// window box: open front, walls in the card's colours. It is only drawn while the board hides it completely
+// (seen through the window from the front); from the side or from behind it disappears together with the diorama.
+const winBox = new THREE.Group(); winBox.name = 'window box'; board.add(winBox);
 { const W = WIN.w*S, H = WIN.h*S, D = WIN.depth, cx = (WIN.x+WIN.w/2-BW/2)*S, cy = (BH/2-(WIN.y+WIN.h/2))*S;
   const wall = (w,h,color,pos,rot) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color,toneMapped:false}));
-    m.position.set(cx+pos[0],cy+pos[1],pos[2]); m.rotation.set(...rot); board.add(m); return m; };
+    m.position.set(cx+pos[0],cy+pos[1],pos[2]); m.rotation.set(...rot); winBox.add(m); return m; };
   wall(W,H,'#14132a',[0,0,-D],[0,0,0]);                         // back
   wall(W,D,'#1b1934',[0,-H/2,-D/2],[-Math.PI/2,0,0]);           // floor
   wall(W,D,'#242150',[0,H/2,-D/2],[Math.PI/2,0,0]);             // ceiling
   wall(D,H,'#1e1c3e',[-W/2,0,-D/2],[0,Math.PI/2,0]);            // left
   wall(D,H,'#1e1c3e',[W/2,0,-D/2],[0,-Math.PI/2,0]);            // right
+}
+// rear cover: the board's back is a closed, quiet panel (the front panels are one-sided)
+{ const w = BW*S, h = BH*S, r = 48*S, sh = new THREE.Shape();
+  sh.moveTo(-w/2+r,-h/2); sh.lineTo(w/2-r,-h/2); sh.absarc(w/2-r,-h/2+r,r,-Math.PI/2,0); sh.lineTo(w/2,h/2-r); sh.absarc(w/2-r,h/2-r,r,0,Math.PI/2);
+  sh.lineTo(-w/2+r,h/2); sh.absarc(-w/2+r,h/2-r,r,Math.PI/2,Math.PI); sh.lineTo(-w/2,-h/2+r); sh.absarc(-w/2+r,-h/2+r,r,Math.PI,Math.PI*1.5);
+  const back = new THREE.Mesh(new THREE.ShapeGeometry(sh,12),new THREE.MeshBasicMaterial({color:'#1b1830',toneMapped:false}));
+  back.rotation.y = Math.PI; back.position.z = -.0015; back.name = 'board back'; board.add(back);
+  const edge = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(sh.getPoints(12)),new THREE.LineBasicMaterial({color:'#c99be0',transparent:true,opacity:.45,toneMapped:false}));
+  edge.rotation.y = Math.PI; edge.position.z = -.0016; board.add(edge);
+}
+// is the box fully hidden behind the board from where the viewer stands? (camera in board space; back corners projected onto the board plane)
+const camW = new THREE.Vector3(), camB = new THREE.Vector3();
+function windowSeen(){
+  (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(camW);
+  board.updateMatrixWorld(); board.worldToLocal(camB.copy(camW));
+  if (camB.z<.01) return false;
+  const l = (WIN.x-BW/2)*S, r = (WIN.x+WIN.w-BW/2)*S, t = (BH/2-WIN.y)*S, b = (BH/2-WIN.y-WIN.h)*S, hx = BW/2*S-.02, hy = BH/2*S-.02;
+  const k = camB.z/(camB.z+WIN.depth);
+  for (const x of [l,r]) for (const y of [b,t]) { if (Math.abs(camB.x+(x-camB.x)*k)>hx || Math.abs(camB.y+(y-camB.y)*k)>hy) return false; }
+  return true;
 }
 // clip everything in the diorama to the box (planes in board space, moved to world space every frame)
 const winPlanesLocal = (()=>{ const l = (WIN.x-BW/2)*S, r = (WIN.x+WIN.w-BW/2)*S, t = (BH/2-WIN.y)*S, b = (BH/2-WIN.y-WIN.h)*S;
@@ -423,7 +482,7 @@ function radialTexture(){ const c = document.createElement('canvas'); c.width = 
   const gr = g.createRadialGradient(32,32,0,32,32,32); gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.3,'rgba(255,255,255,.45)'); gr.addColorStop(1,'rgba(255,255,255,0)');
   g.fillStyle = gr; g.fillRect(0,0,64,64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 const glowTex = radialTexture();
-const UP = new THREE.Color('#9cbcff'), DOWN = new THREE.Color('#e0907e'), PINK = new THREE.Color(C.pink);
+const UP = new THREE.Color('#9cbcff'), DOWN = new THREE.Color('#e0907e'), PINK = new THREE.Color(C.pink), WHITE = new THREE.Color('#ffffff');
 const additivePoints = (size,n) => {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3).setUsage(THREE.DynamicDrawUsage));
@@ -438,7 +497,8 @@ const additivePoints = (size,n) => {
 // inner = commercial (hedgers), middle = noncommercial (speculators), outer = nonreportable (small traders)
 // count ← |net| share of open interest · flow ← sign of net (long out / short in) · speed ← weekly change of net
 // overall radius ← open interest (log, relative to the other currencies) · brightness ← 52-week percentile extremity
-const HALO = {r:[.026,.0300,.034], spread:.0028, min:150, max:460, size:.0052, glow:2.4, swirl:.6, rim:1.1, rimR:.037};
+const HALO = {r:[.024,.031,.038], spread:.0016, min:110, max:300, size:.0044, glow:1.25, swirl:.35, rim:.5, rimR:.043,
+              breath:.35, period:4.2};   // three clearly separated shells · breathing depth (0–1) and period (s), each shell on its own beat
 const COT_GROUPS = ['commercial','noncommercial','nonreportable'];
 const cotOf = (() => {
   const src = Object.values(data).find(d=>d.contexts?.cot)?.contexts.cot || [], out = {};
@@ -499,7 +559,7 @@ function makeHalo(cur){
   const ext = cot ? Math.max(0,(Math.abs(cot.p52-50)-35)/15) : 0;   // 0 inside 15–85 %, 1 at the extremes
   const size = cot ? .85+.3*cot.oiN : .9;
   const rim = new THREE.Mesh(new THREE.SphereGeometry(HALO.rimR*size,48,24),marbleRimMaterial());   // glass-marble edge glow
-  return {pts, rim, shells, dirs, phase, total, size, bright:1+ext*.9, tight:1-ext*.4};
+  return {pts, rim, shells, dirs, phase, total, size, bright:1+ext*.45, tight:1-ext*.3};
 }
 const marbles = CURRENCIES.map((cur,i)=>{
   const a = -Math.PI/2+i*Math.PI/4, x = Math.cos(a)*DIO.R*.78, z = Math.sin(a)*DIO.R*.78;
@@ -511,7 +571,7 @@ const marbles = CURRENCIES.map((cur,i)=>{
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false}));
   hit.userData.currency = cur; ball.add(hit);
   const halo = makeHalo(cur); ball.add(halo.pts); ball.add(halo.rim);
-  const sel = new THREE.Mesh(new THREE.TorusGeometry(.046,.0012,8,96),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,toneMapped:false}));
+  const sel = new THREE.Mesh(new THREE.TorusGeometry(.054,.0012,8,96),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,toneMapped:false}));
   sel.rotation.x = Math.PI/2; ball.add(sel);
   const n = 14, pos = new Float32Array(n*3);
   const column = new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(pos,3)),
@@ -559,21 +619,23 @@ function updateDiorama(t){
 const tmpCol = new THREE.Color();
 function updateHalo(m,t,dt,col){
   const h = m.halo, pos = h.pts.geometry.attributes.position.array, cl = h.pts.geometry.attributes.color.array;
-  const sel = m.cur===state.currency ? 1.25 : 1;
-  h.pts.rotation.y = t*HALO.swirl+m.phase; h.pts.rotation.z = Math.sin(t*.3+m.phase)*.25;
+  const sel = m.cur===state.currency ? 1.15 : 1, w = 2*Math.PI/HALO.period;
+  const beat = ph => 1-HALO.breath+HALO.breath*(.5+.5*Math.sin(t*w+ph));        // slow breathing instead of sparkle
+  h.pts.rotation.y = t*HALO.swirl+m.phase; h.pts.rotation.z = Math.sin(t*.2+m.phase)*.15;
   h.rim.material.uniforms.uColor.value.copy(col).lerp(PINK,.2);
-  h.rim.material.uniforms.uStrength.value = HALO.rim*h.bright*sel*(.85+.15*Math.sin(t*2.2+m.phase));
+  h.rim.material.uniforms.uStrength.value = HALO.rim*h.bright*sel*beat(m.phase);
   h.shells.forEach((s,k)=>{
-    // shell colour: inner whiter, outer carries the up/down tint
-    tmpCol.copy(col).lerp(PINK,k===1?.25:0).lerp(new THREE.Color('#ffffff'),k===0?.45:k===1?.15:0);
+    // three readable shells: inner (commercial) near white · middle (speculators) pink · outer (small traders) up/down tint
+    tmpCol.copy(col); if (k===0) tmpCol.lerp(WHITE,.6); else if (k===1) tmpCol.lerp(PINK,.6).lerp(WHITE,.1);
+    const br = beat(m.phase+k*2.1);
     const R = s.r*h.size, spread = HALO.spread*h.tight;
     for (let j=0;j<s.n;j++){
       const i = s.start+j;
       h.phase[i] = (h.phase[i]+dt*s.speed*(.6+.8*((i*7919)%13)/13))%1;
       const u = h.phase[i], rr = R+spread*(s.dir>0 ? u : 1-u)-spread*.5;   // long: drift outward · short: drift inward
-      const wob = 1+.06*Math.sin(t*1.7+i*.37);
+      const wob = 1+.015*Math.sin(t*.9+i*.37);
       pos[i*3] = h.dirs[i*3]*rr*wob; pos[i*3+1] = h.dirs[i*3+1]*rr*wob; pos[i*3+2] = h.dirs[i*3+2]*rr*wob;
-      const a = (.25+.75*Math.sin(Math.PI*u))*(.6+.4*Math.sin(t*5+i))*HALO.glow*h.bright*sel;   // fade in and out along the drift
+      const a = (.3+.7*Math.sin(Math.PI*u))*br*HALO.glow*h.bright*sel;   // fade in and out along the drift
       cl[i*3] = tmpCol.r*a; cl[i*3+1] = tmpCol.g*a; cl[i*3+2] = tmpCol.b*a;
     }
   });
@@ -760,7 +822,11 @@ const corners = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz])=>{
 const holder3D = new THREE.Group(); deskItem.add(holder3D);           // the diorama is re-parented here
 deskItem.visible = false;
 
-const DIO_FOOT = .40, DIO_LIFT = .2;                                     // diorama width incl. halos, and depth below the water (dio units)
+const DIO_FOOT = .40;                                                    // diorama width incl. halos (dio units)
+// tilt presets on the table; the turn (state.dioYaw) works in all of them. lift keeps the lowest point above the table (dio units)
+const TABLE_VIEWS = {top:{tilt:Math.PI/2, lift:.21, label:'TOP'}, front:{tilt:0, lift:.2, label:'FRONT'}, persp:{tilt:.35, lift:.24, label:'PERSP'}};
+const tableView = () => TABLE_VIEWS[state.dioView] || TABLE_VIEWS.persp;
+const dioTargetQ = new THREE.Quaternion(), dioEuler = new THREE.Euler(0,0,0,'XYZ');
 const dioWindowPose = {pos:dio.position.clone(), rotX:dio.rotation.x, scale:dio.scale.x};
 const cellCentre = (i,n) => (i+n/2)*DESK.cell;
 function layoutDeskItem(i,j,n,instant){
@@ -768,11 +834,15 @@ function layoutDeskItem(i,j,n,instant){
   deskItem.userData.target = new THREE.Vector3(x,0,z); if (instant) deskItem.position.set(x,0,z);
   itemEdge.scale.set(w*.98,w*.98,1); itemPad.scale.set(w,w,1);
   for (const c of corners) c.ball.position.set(c.sx*w/2,.006,c.sz*w/2);
-  const s = w/DIO_FOOT; dio.scale.setScalar(s); dio.position.set(0,DIO_LIFT*s,0);
+  const s = w/DIO_FOOT; dio.scale.setScalar(s); dio.userData.lift = tableView().lift*s;
+  if (instant) { dio.position.set(0,dio.userData.lift,0); dio.quaternion.copy(tableTargetQ()); }
+  rotRing.scale.setScalar(w); knob.scale.setScalar(1/w);
+  tableViewP.mesh.position.set(0,.02,w/2+.07);
 }
+function tableTargetQ(){ dioEuler.set(tableView().tilt,state.dioYaw||0,0,'XYZ'); return dioTargetQ.setFromEuler(dioEuler); }   // turn about its own up axis, then tilt toward the user
 function setDioClip(on){ dio.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = on ? winPlanes : null; m.needsUpdate = true; } }); }
 function dioToTable(){
-  state.dioOnTable = true; deskItem.visible = true; holder3D.add(dio); dio.rotation.set(0,0,0);
+  state.dioOnTable = true; deskItem.visible = true; holder3D.add(dio);
   const n = Math.min(DESK.maxN,state.dioN||1);
   state.dioN = n; state.dioI = Math.min(DESK.cols-n,state.dioI ?? Math.floor((DESK.cols-n)/2)); state.dioJ = Math.min(DESK.rows-n,state.dioJ ?? DESK.rows-n);
   layoutDeskItem(state.dioI,state.dioJ,n,true); setDioClip(false); dioCardP.dirty = true;
@@ -781,6 +851,68 @@ function dioToWindow(){
   state.dioOnTable = false; deskItem.visible = false; board.add(dio);
   dio.position.copy(dioWindowPose.pos); dio.rotation.set(dioWindowPose.rotX,0,0); dio.scale.setScalar(dioWindowPose.scale);
   setDioClip(true); dioCardP.dirty = true;
+}
+
+// turning ring around the footprint: pinch it and drag around to turn the diorama
+const RING = {r:.85, in:.79, out:.95};                                   // × item width
+const rotRing = new THREE.Group(); rotRing.position.y = .006; deskItem.add(rotRing);
+{ const pts = []; for (let i=0;i<=128;i++){ const a = i/128*Math.PI*2; pts.push(new THREE.Vector3(Math.sin(a)*RING.r,0,Math.cos(a)*RING.r)); }
+  const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineDashedMaterial({color:'#b9c9ff',transparent:true,opacity:.4,dashSize:.012,gapSize:.018,toneMapped:false}));
+  l.computeLineDistances(); rotRing.add(l);
+  const hit = new THREE.Mesh(new THREE.RingGeometry(RING.in,RING.out,64),new THREE.MeshBasicMaterial({visible:false}));
+  hit.rotation.x = -Math.PI/2; hit.userData.kind = 'dioRotate'; rotRing.add(hit); rotRing.userData.hit = hit; }
+const knob = new THREE.Mesh(new THREE.SphereGeometry(.008,16,10),new THREE.MeshBasicMaterial({color:'#fff3ff',toneMapped:false}));
+{ const g = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:C.pink,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+  g.scale.setScalar(.045); knob.add(g); } rotRing.add(knob);
+
+// tilt presets strip, at the item's front edge, tilted toward the user
+const tableViewP = panel({name:'table views',x:0,y:0,w:262,h:52,margin:8,parent:deskItem,z:0,draw(ctx,p){
+  rr(ctx,0,0,262,52,26); ctx.fillStyle = 'rgba(35,32,66,.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+  ['top','front','persp'].forEach((id,k)=>{
+    const x = 9+k*82, y = 9, w = 78, h = 34, on = state.dioView===id, hot = p.hover===id;
+    ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?14:8; }
+    rr(ctx,x,y,w,h,17); ctx.fillStyle = on ? C.pink : C.card; ctx.fill(); ctx.restore();
+    if (!on) { rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke(); }
+    text(ctx,TABLE_VIEWS[id].label,x+w/2,y+h/2+1,{font:'800 12px Manrope',color:on?C.dark:(hot?C.pink:C.ink),align:'center',ls:'.5px'});
+    p.region(id,x,y,w,h,()=>setTableView(id));
+  });
+}});
+tableViewP.mesh.rotation.x = -1.05;
+function setTableView(id){
+  state.dioView = id; state.dioYaw = id==='persp' ? (Math.abs(state.dioYaw)<.05 ? .6 : state.dioYaw) : 0;
+  const s = dio.scale.x; dio.userData.lift = tableView().lift*s; tableViewP.dirty = true;
+}
+
+// ---- 2D view in the window while the diorama is on the table (live orthographic render: top or front)
+const VIEW = {w:896, fps:20, bg:'#14132a', top:{half:.21, cy:0}, front:{half:.22, cy:.04}};
+const viewRT = new THREE.WebGLRenderTarget(VIEW.w,Math.round(VIEW.w*WIN.h/WIN.w),{samples:2});
+viewRT.texture.colorSpace = THREE.SRGBColorSpace;
+const viewScene = new THREE.Scene(); viewScene.background = new THREE.Color(VIEW.bg);
+viewScene.add(new THREE.HemisphereLight('#cfd9ff','#2a2140',1.3));
+{ const l = new THREE.DirectionalLight('#ffffff',1.6); l.position.set(1,3,2); viewScene.add(l); }   // same lights as the room scene
+const viewCam = new THREE.OrthographicCamera(-1,1,1,-1,.01,5);
+const viewPlane = new THREE.Mesh(new THREE.PlaneGeometry(WIN.w*S,WIN.h*S),new THREE.MeshBasicMaterial({map:viewRT.texture,toneMapped:false}));
+viewPlane.position.set((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-.004); viewPlane.renderOrder = -1; viewPlane.visible = false; viewPlane.name = 'window 2D view'; board.add(viewPlane);
+let viewDirty = true, viewLast = 0;
+const saveP = new THREE.Vector3(), saveQ = new THREE.Quaternion(), saveS = new THREE.Vector3(), viewPts = [];
+function renderView(now){
+  if (!state.dioOnTable || state.hidden) return;
+  if (!viewDirty && now-viewLast<1000/VIEW.fps) return; viewDirty = false; viewLast = now;
+  const top = state.view2D!=='front', v = top ? VIEW.top : VIEW.front, aspect = WIN.w/WIN.h;
+  viewCam.left = -v.half*aspect; viewCam.right = v.half*aspect; viewCam.top = v.cy+v.half; viewCam.bottom = v.cy-v.half;
+  if (top) { viewCam.position.set(0,2,0); viewCam.up.set(0,0,-1); } else { viewCam.position.set(0,0,2); viewCam.up.set(0,1,0); }
+  viewCam.lookAt(0,0,0); viewCam.updateProjectionMatrix();
+  // borrow the diorama for a moment, in a neutral pose
+  const parent = dio.parent; saveP.copy(dio.position); saveQ.copy(dio.quaternion); saveS.copy(dio.scale);
+  viewScene.add(dio); dio.position.set(0,0,0); dio.quaternion.identity(); dio.scale.setScalar(1);
+  // points are sized in pixels under an orthographic camera: convert their world size
+  const px = viewRT.height/(2*v.half)/renderer.getPixelRatio(); viewPts.length = 0;
+  dio.traverse(o=>{ if (o.isPoints) { viewPts.push([o.material,o.material.size]); o.material.size *= px; } });
+  const xrOn = renderer.xr.enabled, old = renderer.getRenderTarget();
+  renderer.xr.enabled = false; renderer.setRenderTarget(viewRT); renderer.render(viewScene,viewCam);
+  renderer.setRenderTarget(old); renderer.xr.enabled = xrOn;
+  for (const [m,sz] of viewPts) m.size = sz;
+  parent.add(dio); dio.position.copy(saveP); dio.quaternion.copy(saveQ); dio.scale.copy(saveS);
 }
 
 // grid controls: a small strip at the near-left corner, tilted toward the user
@@ -873,6 +1005,7 @@ const clampI = (v,n,max) => Math.max(0,Math.min(max-n,v));
 function dragUpdate(s,o,d){
   const p = rayOnGrid(o,d); if (!p) return;
   const dr = s.drag;
+  if (dr.kind==='dioRotate') { state.dioYaw = dr.yaw0+wrapA(ringAngle(p)-dr.a0); return; }
   if (dr.kind==='dioMove') {
     const n = state.dioN;
     dr.i = clampI(Math.round((p.x+DESK_W/2)/DESK.cell-n/2),n,DESK.cols); dr.j = clampI(Math.round((p.z+DESK_D/2)/DESK.cell-n/2),n,DESK.rows); dr.n = n;
@@ -885,11 +1018,41 @@ function dragUpdate(s,o,d){
     dr.n = n; dr.i = clampI(Math.round((x0+DESK_W/2)/DESK.cell),n,DESK.cols); dr.j = clampI(Math.round((z0+DESK_D/2)/DESK.cell),n,DESK.rows);
     if (n!==state.dioN) { state.dioN = n; layoutDeskItem(dr.i,dr.j,n,false); }
   }
+  showDrop(dr);
+}
+function showDrop(dr){
   const w = dr.n*DESK.cell; dropFill.visible = dropEdge.visible = true;
   dropFill.scale.set(w,w,1); dropEdge.scale.set(w,w,1);
   dropFill.position.x = dropEdge.position.x = cellCentre(dr.i,dr.n)-DESK_W/2; dropFill.position.z = dropEdge.position.z = cellCentre(dr.j,dr.n)-DESK_D/2;
 }
+const ringAngle = p => Math.atan2(p.x-deskItem.position.x,p.z-deskItem.position.z);
+const wrapA = a => Math.atan2(Math.sin(a),Math.cos(a));
+// direct hand grab: pinch inside the diorama's volume, move it over the grid, turn the hand to turn it
+const gp = new THREE.Vector3(), jA = new THREE.Vector3(), jB = new THREE.Vector3();
+function pinchPoint(s,out){ const j = s.hand.joints; j['index-finger-tip'].getWorldPosition(jA); j['thumb-tip'].getWorldPosition(jB);
+  return out.copy(jA).add(jB).multiplyScalar(.5).applyMatrix4(invGrid); }
+function handYaw(s){ const j = s.hand.joints; if (!j['wrist']?.visible || !j['middle-finger-metacarpal']?.visible) return 0;
+  j['wrist'].getWorldPosition(jA).applyMatrix4(invGrid); j['middle-finger-metacarpal'].getWorldPosition(jB).applyMatrix4(invGrid);
+  return Math.atan2(jB.x-jA.x,jB.z-jA.z); }
+function handGrabStart(s){
+  const j = s.hand?.joints; if (!j?.['index-finger-tip']?.visible || !j['thumb-tip']?.visible) return false;
+  deskGrid.updateMatrixWorld(); invGrid.copy(deskGrid.matrixWorld).invert(); pinchPoint(s,gp);
+  const w = state.dioN*DESK.cell, c = deskItem.position;
+  if (Math.abs(gp.x-c.x)>w/2+.04 || Math.abs(gp.z-c.z)>w/2+.04 || gp.y<-.03 || gp.y>w*1.2+.05) return false;
+  s.drag = {kind:'dioGrab',i:state.dioI,j:state.dioJ,n:state.dioN,off:[gp.x-c.x,gp.z-c.z],y0:gp.y,yaw0:state.dioYaw||0,h0:handYaw(s)};
+  return true;
+}
+function grabUpdate(s){
+  const j = s.hand.joints; if (!j['index-finger-tip']?.visible || !j['thumb-tip']?.visible) { dragEnd(s); return; }
+  pinchPoint(s,gp); const dr = s.drag, n = state.dioN, x = gp.x-dr.off[0], z = gp.z-dr.off[1];
+  dr.i = clampI(Math.round((x+DESK_W/2)/DESK.cell-n/2),n,DESK.cols); dr.j = clampI(Math.round((z+DESK_D/2)/DESK.cell-n/2),n,DESK.rows); dr.n = n;
+  deskItem.userData.target.set(x,Math.max(0,Math.min(.2,gp.y-dr.y0))+.015,z);          // lifts a little in the hand
+  state.dioYaw = dr.yaw0+wrapA(handYaw(s)-dr.h0);
+  showDrop(dr);
+}
 function dragStart(s,hit){
+  if (hit.kind==='dioRotate') { const p = hit.point.clone().applyMatrix4(invGrid.copy(deskGrid.matrixWorld).invert());
+    s.drag = {kind:'dioRotate',a0:ringAngle(p),yaw0:state.dioYaw||0}; return; }
   if (hit.kind==='dioMove') s.drag = {kind:'dioMove',i:state.dioI,j:state.dioJ,n:state.dioN};
   else { const [sx,sz] = hit.object.userData.corner, w = state.dioN*DESK.cell;
     const cx = cellCentre(state.dioI,state.dioN)-DESK_W/2, cz = cellCentre(state.dioJ,state.dioN)-DESK_D/2;
@@ -897,6 +1060,7 @@ function dragStart(s,hit){
 }
 function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
+  if (dr.kind==='dioRotate') return;
   state.dioI = dr.i; state.dioJ = dr.j; state.dioN = dr.n; layoutDeskItem(dr.i,dr.j,dr.n,false);
 }
 const handLocal = new THREE.Vector3();
@@ -918,11 +1082,15 @@ function updateDesk(t,frame){
   }
   // drags
   for (const s of sources) if (s.drag) {
+    if (s.drag.kind==='dioGrab') { grabUpdate(s); continue; }
     if (s.controller) { if (!s.controller.visible) { dragEnd(s); continue; }
       rO.setFromMatrixPosition(s.controller.matrixWorld); rD.set(0,0,-1).transformDirection(s.controller.matrixWorld); dragUpdate(s,rO.clone(),rD.clone()); }
     else if (s.ray) dragUpdate(s,s.ray.o,s.ray.d);
   }
   if (deskItem.visible && deskItem.userData.target) deskItem.position.lerp(deskItem.userData.target,.25);
+  if (state.dioOnTable && dio.parent===holder3D) {                       // ease toward the tilt preset, turn and lift
+    dio.quaternion.slerp(tableTargetQ(),.18); dio.position.y += ((dio.userData.lift ?? 0)-dio.position.y)*.18; }
+  const yaw = state.dioYaw||0; knob.position.set(Math.sin(yaw)*RING.r,0,Math.cos(yaw)*RING.r);
   for (const c of corners) c.glow.material.opacity = .55+.35*Math.sin(t*3+c.sx+c.sz*2);
 }
 applyDeskToggles(); if (state.dioOnTable) dioToTable();
@@ -953,7 +1121,7 @@ function place(){
 const raycaster = new THREE.Raycaster();
 const holePanels = new Set(['board','drop CHARTS','diorama card']);
 function targets(){ const list = []; for (const p of panels) if (p.mesh.visible && p.mesh.parent.visible) list.push(p.mesh);
-  if (state.dioOnTable && dio.visible) { list.push(itemPad); for (const c of corners) list.push(c.hit); }
+  if (state.dioOnTable && dio.visible) { list.push(itemPad,rotRing.userData.hit); for (const c of corners) list.push(c.hit); }
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit); return list; }
 function pick(origin,dir){
   raycaster.set(origin,dir); raycaster.far = 6;
@@ -975,6 +1143,7 @@ function setHover(source,hit){
   for (const p of new Set([prev?.panel,next?.panel].filter(Boolean))) { p.hover = sources.map(s=>s.hover).find(h=>h?.panel===p)?.id ?? null; p.dirty = true; }
 }
 function press(source,hit){
+  if (source.hand && state.dioOnTable && !state.hidden && handGrabStart(source)) return;
   if (!hit) return;
   if (hit.currency) { setCurrency(hit.currency); return; }
   if (hit.kind) { dragStart(source,hit); return; }
@@ -1035,7 +1204,7 @@ function updateXRInput(){
     if (!best) for (const p of panels) {
       if (!p.mesh.visible || !p.mesh.parent.visible || !p.regions.length || p.name==='toast') continue;
       p.mesh.worldToLocal(local.copy(tipPos));
-      const d = local.z*boardRoot.scale.x, lx = local.x/S+p.w/2, ly = p.h/2-(local.y/S);
+      const d = local.z*(p.mesh.parent===board||p.mesh.parent===fixed ? boardRoot.scale.x : 1), lx = local.x/S+p.w/2, ly = p.h/2-(local.y/S);
       if (lx<0||ly<0||lx>p.w||ly>p.h||d>.05||d<-.03) continue;
       const region = p.regions.findLast(r=>lx>=r.x&&lx<=r.x+r.w&&ly>=r.y&&ly<=r.y+r.h);
       if (region) { best = {panel:p,region,touch:d<.008}; break; }
@@ -1053,8 +1222,9 @@ function updateXRInput(){
 
 // ---------------------------------------------------------------- session
 let needsPlace = 0;
-renderer.xr.addEventListener('sessionstart',()=>{ scene.background = null; renderer.setClearAlpha(0); needsPlace = 12; });
-renderer.xr.addEventListener('sessionend',()=>{ scene.background = desktopBg; boardRoot.position.set(0,1.4,0); boardRoot.rotation.set(0,0,0);
+renderer.xr.addEventListener('sessionstart',()=>{ scene.background = null; renderer.setClearAlpha(0); needsPlace = 12;
+  FPS.target = renderer.xr.getSession()?.frameRate || 72; });
+renderer.xr.addEventListener('sessionend',()=>{ scene.background = desktopBg; FPS.target = 60; boardRoot.position.set(0,1.4,0); boardRoot.rotation.set(0,0,0);
   for (const it of roomItems.values()) { roomGroup.remove(it.lines); it.lines.geometry.dispose(); } roomItems.clear(); tablePlane = null; placeGrid(); });
 if (navigator.xr && await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false)) {
   enterBtn.disabled = false; enterBtn.textContent = 'Enter MR';
@@ -1066,9 +1236,9 @@ if (navigator.xr && await navigator.xr.isSessionSupported('immersive-ar').catch(
 } else enterBtn.textContent = 'MR not available — desktop preview';
 
 const counts = HORIZONS.map(h=>`${h.id.toUpperCase()} ${data[h.id]?obsOf(h.id).length+' obs':'—'}`).join(' · ');
-statusEl.textContent = dataMode==='HELD'
+statusEl.textContent = `build ${BUILD} · ` + (dataMode==='HELD'
   ? `Barış's held observations · ${counts}${takenAt?' · snapshot '+utcLabel(takenAt):''} · freshness unverified`
-  : `No snapshot yet — showing the repo's old held sample (21 Aug 2026) · ${counts}`;
+  : `No snapshot yet — showing the repo's old held sample (21 Aug 2026) · ${counts}`);
 
 addEventListener('resize',()=>{ camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
 boardRoot.scale.setScalar(state.scale);
@@ -1076,10 +1246,15 @@ boardRoot.scale.setScalar(state.scale);
 // ---------------------------------------------------------------- frame loop
 renderer.setAnimationLoop((now,frame)=>{
   const t = now/1000;
+  fpsTick(now);
   if (needsPlace && renderer.xr.isPresenting && --needsPlace===0) { place(); placeGrid(); }
   updateXRInput();
   updateDiorama(t);
   updateDesk(t,frame);
+  // diorama in the window only while the board hides its box; on the table it is always there and the window shows the 2D view
+  const seen = state.dioOnTable || windowSeen();
+  winBox.visible = !state.dioOnTable && seen; viewPlane.visible = state.dioOnTable;
+  dio.visible = !state.hidden && seen; deskItem.visible = state.dioOnTable && !state.hidden;
   const minute = new Date().getMinutes()+':'+new Date().getDate();
   if (minute!==lastMinute) { lastMinute = minute; clocksP.dirty = dateP.dirty = newsP.dirty = true; }
   if (toastMsg && now>toastUntil) { toastMsg = ''; toastP.mesh.visible = false; }
@@ -1087,6 +1262,7 @@ renderer.setAnimationLoop((now,frame)=>{
     if (!p.mesh.visible) continue;
     if (p.dirty || (p.fps && now-p.last>1000/p.fps)) p.redraw(now);
   }
+  renderView(now);
   if (!renderer.xr.isPresenting) orbit.update();
   renderer.render(scene,camera);
 });
