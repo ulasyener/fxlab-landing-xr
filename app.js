@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '41';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '42';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -43,6 +43,7 @@ const state = {
   dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
   winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null, maniRoom: false,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
+  ribbonYaw: 0, ribbonTilt: .12, ribbonRoom: false, ribbonFrame: null,   // data sculpture: hand turn · selected observation · expanded around the user
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
   gridCols: 8, gridRows: 4, gridOff: false, gridFloor: false, gridTableY: null, gridBlocks: {},   // … · grid lowered to the floor (and its table height to go back to) · raised cells {'i,j': height m}     // table grid size in 25 cm cells (pulled from its edges / corners) · whole table grid switched off
   roomOn: false, roomPaused: false, roomCoins: null, roomMin: false,   // roomMin: main screen folded into the small widget   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
@@ -245,9 +246,9 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
   rr(ctx,0,0,639,581,24); const g = ctx.createLinearGradient(0,0,0,581);
   g.addColorStop(0,'#2b2852'); g.addColorStop(.55,'#201d40'); g.addColorStop(1,'#16152c');
   ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
-  const dioView = state.winView!=='manifold';                             // the window shows the diorama, or another visualisation from the tabs
-  text(ctx,dioView?'DIORAMA':'MANIFOLD',25,32,{font:'800 14px Manrope',color:C.muted,ls:'.4px'});
-  text(ctx,state.dioOnTable&&dioView?'2D':'3D',614,32,{font:'600 14px "Kode Mono"',color:C.muted,align:'right'});
+  const dioView = state.winView==='diorama', maniView = state.winView==='manifold', ribbonView = state.winView==='ribbon';
+  text(ctx,dioView?'DIORAMA':maniView?'MANIFOLD':'DATA SCULPTURE',25,32,{font:'800 14px Manrope',color:C.muted,ls:'.4px'});
+  text(ctx,ribbonView&&state.ribbonRoom?'AROUND YOU':state.dioOnTable&&dioView?'2D':'3D',614,32,{font:'600 14px "Kode Mono"',color:C.muted,align:'right'});
   // while the diorama is on the table the window shows it flat: top ↔ front
   if (state.dioOnTable && dioView) { const x = 118, y = 14, w = 152, h = 34;
     rr(ctx,x,y,w,h,17); ctx.fillStyle = C.card; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#4b4470'; ctx.stroke();
@@ -269,16 +270,16 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
     text(ctx,on?'ALL LINKS':'SELECTED',x+48,cy+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
     p.region('links',x-6,y-8,w+12,h+16,()=>{ state.allLinks = !state.allLinks; p.dirty = true; }); }
   // manifold: step inside it ↔ step out
-  if (!dioView && MANI_DATA) { const x = 452, y = 14, w = 128, h = 34, on = state.maniRoom, hot = p.hover==='inside';
+  if ((maniView&&MANI_DATA) || ribbonView) { const x = 452, y = 14, w = 128, h = 34, on = ribbonView?state.ribbonRoom:state.maniRoom, hot = p.hover==='inside';
     ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?16:10; }
     rr(ctx,x,y,w,h,17); ctx.fillStyle = on ? C.pink : C.card; ctx.fill(); ctx.restore();
     if (!on) { rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke(); }
     const ink = on ? C.dark : (hot ? C.pink : C.ink);
     drawIcon(ctx,on?'sign-out':'person-simple-walk',ink,x+22,y+h/2,18);
     text(ctx,on?'STEP OUT':'STEP INSIDE',x+38,y+h/2+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
-    p.region('inside',x-6,y-8,w+12,h+16,()=>{ state.maniRoom ? maniFromRoom() : maniToRoom(); p.dirty = true; }); }
+    p.region('inside',x-6,y-8,w+12,h+16,()=>{ if (ribbonView) state.ribbonRoom?ribbonFromRoom():ribbonToRoom(); else state.maniRoom?maniFromRoom():maniToRoom(); p.dirty = true; }); }
   // bring the diorama into the room: onto the table grid, and back into the window
-  { const x = 290, y = 14, w = 150, h = 34, on = dioView ? state.dioOnTable : state.maniOnTable, hot = p.hover==='table';
+  if (!ribbonView) { const x = 290, y = 14, w = 150, h = 34, on = dioView ? state.dioOnTable : state.maniOnTable, hot = p.hover==='table';
     ctx.save(); if (hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = 12; }
     rr(ctx,x,y,w,h,17); ctx.fillStyle = C.card; ctx.fill(); ctx.restore();
     rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke();
@@ -286,7 +287,7 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
     drawIcon(ctx,'desk',ink,x+22,y+h/2,18);
     text(ctx,on?'BACK TO WINDOW':'PLACE ON TABLE',x+38,y+h/2+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
     p.region('table',x-4,y-8,w+8,h+16,()=>{
-      if (!dioView) { if (!MANI_DATA) return; if (state.maniRoom) { state.maniRoom = false; maniInfo(null); }
+      if (maniView) { if (!MANI_DATA) return; if (state.maniRoom) { state.maniRoom = false; maniInfo(null); }
         state.maniOnTable ? maniToWindow() : maniToTable();
         toast(state.maniOnTable?'Manifold on the table · drag it to turn and tilt, two hands to zoom, pinch its frame to move':'Manifold back in its window'); return; }
       state.dioOnTable ? dioToWindow() : dioToTable(); toast(state.dioOnTable?'Diorama on the table · pinch it to move, pull a corner to scale':'Diorama back in its window'); }); }
@@ -386,8 +387,8 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
-  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin,gridCols:state.gridCols,gridRows:state.gridRows,gridOff:state.gridOff,gridFloor:state.gridFloor,gridTableY:state.gridTableY,gridBlocks:state.gridBlocks})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['house','house','Default layout',()=>{ if(state.ribbonRoom)ribbonFromRoom(); state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; state.ribbonYaw = 0; state.ribbonTilt = .12; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); toast('Back to the default layout'); }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,ribbonYaw:state.ribbonYaw,ribbonTilt:state.ribbonTilt,ribbonFrame:state.ribbonFrame,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin,gridCols:state.gridCols,gridRows:state.gridRows,gridOff:state.gridOff,gridFloor:state.gridFloor,gridTableY:state.gridTableY,gridBlocks:state.gridBlocks})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -1691,6 +1692,7 @@ const clampI = (v,n,max) => Math.max(0,Math.min(max-n,v));
 function dragUpdate(s,o,d){
   if (s.drag.kind==='stick') { stickUpdate(s,o,d); return; }
   if (s.drag.kind==='maniSpin') { maniSpinUpdate(s,o,d); return; }
+  if (s.drag.kind==='ribbonSpin') { ribbonSpinUpdate(s,o,d); return; }
   if (s.drag.kind==='maniGrow') { maniGrowUpdate(s,o,d); return; }
   if (s.drag.kind==='maniPopMove') { popMoveUpdate(s,o,d); return; }
   if (s.drag.kind==='gridResize') { gridResizeUpdate(s,o,d); return; }
@@ -1796,7 +1798,7 @@ function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
   if (dr.kind==='roomCoin') { dr.src = s; roomRelease(dr); return; }
   if (dr.kind==='stick') { stickP.dirty = true; return; }
-  if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove' || dr.kind==='maniGrow' || dr.kind==='maniPopMove') return;
+  if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove' || dr.kind==='maniGrow' || dr.kind==='maniPopMove' || dr.kind==='ribbonSpin') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
   if (dr.kind==='gridResize') { gridPlacedAt = 0; tablePlaneLock = true; return; }
   if (dr.kind==='gridExtrude' || dr.kind==='gridCell') return;   // a resized grid stays where the user left it
@@ -1845,12 +1847,12 @@ function updateDesk(t,frame){
 applyDeskToggles(); if (state.dioOnTable) dioToTable();
 
 // ---------------------------------------------------------------- state changes
-function setHorizon(h){ if (!data[h]) return; state.horizon = h; rebuildLoop(); [horizonP,timelineP,dashP].forEach(p=>p.dirty=true); }
-function setCurrency(c){ state.currency = c; dashP.dirty = true; widgetP.dirty = true; }
+function setHorizon(h){ if (!data[h]) return; state.horizon = h; rebuildLoop(); rebuildRibbon?.(); [horizonP,timelineP,dashP,ribbonCapP].filter(Boolean).forEach(p=>p.dirty=true); }
+function setCurrency(c){ state.currency = c; dashP.dirty = true; widgetP.dirty = true; updateRibbonStyle?.(); }
 
 // ---------------------------------------------------------------- 02 · window views: Diorama · Manifold · Ribbon · COT Pawns · Rates Membrane
-// five tabs at the window's top-left; the pink pill slides to the chosen one. Only Diorama and Manifold are built so far.
-const WIN_VIEWS = [['diorama','DIORAMA',true],['manifold','MANIFOLD',true],['ribbon','RIBBON',false],['pawns','COT PAWNS',false],['membrane','RATES',false]];
+// five tabs at the window's top-left; the pink pill slides to the chosen one.
+const WIN_VIEWS = [['diorama','DIORAMA',true],['manifold','MANIFOLD',true],['ribbon','RIBBON',true],['pawns','COT PAWNS',false],['membrane','RATES',false]];
 const TABS = {x:WIN.x+14, y:WIN.y+14, h:32, pad:16, gap:2, slide:.22};       // slide: seconds for the pill to reach its tab
 const tabW = (() => { const c = document.createElement('canvas').getContext('2d'); c.font = '800 11px Manrope';
   return WIN_VIEWS.map(([,label])=>Math.ceil(c.measureText(label).width+.4*label.length)+2*TABS.pad); })();
@@ -1882,6 +1884,7 @@ function setWinView(id){
   tabAnim.from = viewIndex(); state.winView = id; tabAnim.to = viewIndex(); tabAnim.t0 = performance.now()/1000;
   tabsP.fps = 60; tabsP.dirty = true; dioCardP.dirty = true; maniInfo(null);
   if (id==='manifold') toast(MANI_DATA ? 'Manifold · concept on old data (5H, 3 Sep – 19 Oct 2026) · drag to turn, two hands to zoom' : 'Manifold data could not be loaded');
+  if (id==='ribbon') toast('Ribbon · time as a data sculpture · drag to turn, touch a bead, step inside');
 }
 
 // ---- Manifold hologram (concept): Barış's terrain method on his old manifold-v0 fixture
@@ -2229,6 +2232,7 @@ const maniRoomAt = new THREE.Vector3();
 let maniRoomFrom = null;                                                  // {table, zoom, yaw, tilt} to go back to
 function maniToRoom(){
   if (!MANI_DATA || state.maniRoom) return;
+  if (state.ribbonRoom) ribbonFromRoom();
   maniRoomFrom = {table:state.maniOnTable, zoom:state.maniZoom||1, yaw:state.maniYaw||0, tilt:state.maniTilt};
   state.maniOnTable = false; state.maniRoom = true; maniInfo(null);
   (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(maniRoomAt); maniRoomAt.y = 0;
@@ -2408,6 +2412,127 @@ function updateManifold(t,visible){
     maniPopP.mesh.visible = op>0; maniPopP.mesh.scale.setScalar(.75+.25*(1-(1-op)**3));
   }
 }
+
+// ---- Ribbon data sculpture (build 42): the current horizon becomes one continuous, inspectable object.
+// Eight parallel time-strands share one helix. Time rises through it; strength pushes a strand in/out; white is structure
+// and fxlab pink is the selected currency. Geometry is rebuilt only when the horizon changes. Every frame only one group
+// transform and three pulse points move, so the same object stays light enough for the window and for the room-scale view.
+const RIBBON = {turns:5.5, radius:.125, lane:.006, strength:.008, height:.34, maxSteps:72,
+                point:.0042, hit:.009, pulse:.008, pulses:3, pulseSpeed:.065, drift:.045,
+                roomScale:6, reveal:9, spin:5.2};
+const ribbon = new THREE.Group(); ribbon.name = 'ribbon data sculpture';
+const ribbonWinPos = new THREE.Vector3((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-WIN.depth/2);
+ribbon.position.copy(ribbonWinPos); board.add(ribbon);
+const ribbonTurn = new THREE.Group(); ribbon.add(ribbonTurn);
+const ribbonStatic = new THREE.Group(); ribbonTurn.add(ribbonStatic);
+const ribbonPulse = additivePoints(RIBBON.pulse,RIBBON.pulses); ribbonPulse.material.color.set(C.pink); ribbonPulse.renderOrder = 5; ribbonTurn.add(ribbonPulse);
+const ribbonGrab = new THREE.Mesh(new THREE.CylinderGeometry(.19,.19,.40,32),new THREE.MeshBasicMaterial({visible:false}));
+ribbonGrab.userData.kind = 'ribbonSpin'; ribbonTurn.add(ribbonGrab);
+let ribbonLines = null, ribbonDots = null, ribbonHits = null, ribbonNodes = [], ribbonSelected = null, ribbonReveal = 0, ribbonLastT = null;
+const ribbonCurves = new Map(), ribbonLabels = [];
+const ribbonInfoCanvas = document.createElement('canvas'); ribbonInfoCanvas.width = 512; ribbonInfoCanvas.height = 128;
+const ribbonInfoCtx = ribbonInfoCanvas.getContext('2d'), ribbonInfoTex = new THREE.CanvasTexture(ribbonInfoCanvas); ribbonInfoTex.colorSpace = THREE.SRGBColorSpace;
+const ribbonInfo = new THREE.Sprite(new THREE.SpriteMaterial({map:ribbonInfoTex,transparent:true,depthWrite:false,toneMapped:false}));
+ribbonInfo.renderOrder = 6; ribbonTurn.add(ribbonInfo);
+const ribbonRoomAt = new THREE.Vector3(), ribbonTmp = new THREE.Vector3(), ribbonMat = new THREE.Matrix4();
+function disposeRibbonStatic(){
+  ribbonStatic.traverse(o=>{ if (o.geometry) o.geometry.dispose(); if (o.material) for (const m of [o.material].flat()) { if(m.map&&m.map!==crispTex&&m.map!==glowTex)m.map.dispose(); m.dispose?.(); } });
+  ribbonStatic.clear(); ribbonLines = ribbonDots = ribbonHits = null; ribbonNodes.length = ribbonLabels.length = 0; ribbonCurves.clear();
+}
+function ribbonPoint(cur,ci,u,z){
+  const a = u*RIBBON.turns*Math.PI*2, r = RIBBON.radius+(ci-3.5)*RIBBON.lane+Math.max(-2.5,Math.min(2.5,z))*RIBBON.strength;
+  return new THREE.Vector3(Math.cos(a)*r,(u-.5)*RIBBON.height,Math.sin(a)*r);
+}
+function makeRibbonLabel(cur,pos){
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 48; const x = cv.getContext('2d');
+  x.font = '800 30px Manrope'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#ffffff'; x.fillText(cur,64,25);
+  const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tx,color:'#ffffff',transparent:true,depthWrite:false,toneMapped:false}));
+  s.position.copy(pos); s.position.y += .014; s.scale.set(.042,.01575,1); s.renderOrder = 5; ribbonStatic.add(s); ribbonLabels.push({cur,s});
+}
+function rebuildRibbon(){
+  disposeRibbonStatic();
+  const all = obsOf(state.horizon), stride = Math.max(1,Math.ceil(all.length/RIBBON.maxSteps));
+  const frames = all.filter((_,i)=>i%stride===0 || i===all.length-1); if (!frames.length) return;
+  const linePos = [], lineCur = [], lineU = [], dotPos = [], dotCur = [], dotU = [];
+  CURRENCIES.forEach((cur,ci)=>{
+    const path = [];
+    frames.forEach((o,k)=>{ const row = rowOf(o,cur); if (!row) return; const u = frames.length>1?k/(frames.length-1):1, p = ribbonPoint(cur,ci,u,row.strengthZ);
+      const node = {cur,ci,u,z:row.strengthZ,row,obs:o,frame:all.indexOf(o),pos:p}; path.push(node); ribbonNodes.push(node);
+      dotPos.push(p.x,p.y,p.z); dotCur.push(ci); dotU.push(u);
+      if (path.length>1) { const q = path[path.length-2].pos; linePos.push(q.x,q.y,q.z,p.x,p.y,p.z); lineCur.push(ci,ci); lineU.push(path[path.length-2].u,u); } });
+    ribbonCurves.set(cur,path); if (path.length) makeRibbonLabel(cur,path.at(-1).pos);
+  });
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.Float32BufferAttribute(linePos,3));
+  lg.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(linePos.length),3)); lg.userData.cur = lineCur; lg.userData.u = lineU;
+  ribbonLines = new THREE.LineSegments(lg,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+  ribbonLines.renderOrder = 3; ribbonLines.frustumCulled = false; ribbonStatic.add(ribbonLines);
+  const dg = new THREE.BufferGeometry(); dg.setAttribute('position',new THREE.Float32BufferAttribute(dotPos,3));
+  dg.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(dotPos.length),3)); dg.userData.cur = dotCur; dg.userData.u = dotU;
+  ribbonDots = new THREE.Points(dg,new THREE.PointsMaterial({map:crispTex,size:RIBBON.point,vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+  ribbonDots.renderOrder = 4; ribbonDots.frustumCulled = false; ribbonStatic.add(ribbonDots);
+  const hg = new THREE.SphereGeometry(RIBBON.hit,6,4), hm = new THREE.MeshBasicMaterial({visible:false});
+  ribbonHits = new THREE.InstancedMesh(hg,hm,ribbonNodes.length); ribbonHits.userData.kind = 'ribbonPoint'; ribbonHits.userData.nodes = ribbonNodes;
+  ribbonNodes.forEach((n,i)=>{ ribbonMat.makeTranslation(n.pos.x,n.pos.y,n.pos.z); ribbonHits.setMatrixAt(i,ribbonMat); }); ribbonHits.instanceMatrix.needsUpdate = true; ribbonStatic.add(ribbonHits);
+  // Five quiet time rings and radial stitches make the temporal object readable from a distance without extra meshes per datum.
+  for (let k=0;k<5;k++) { const u = k/4, pts = []; for (let j=0;j<=96;j++) { const a=j/96*Math.PI*2, r=RIBBON.radius; pts.push(new THREE.Vector3(Math.cos(a)*r,(u-.5)*RIBBON.height,Math.sin(a)*r)); }
+    const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:k===4?.18:.07,depthWrite:false,toneMapped:false})); ring.renderOrder=1; ribbonStatic.add(ring); }
+  const stitches=[]; for(let k=0;k<frames.length;k+=Math.max(1,Math.round(frames.length/18))){ const u=frames.length>1?k/(frames.length-1):1, a=u*RIBBON.turns*Math.PI*2;
+    for(const r of [RIBBON.radius-.026,RIBBON.radius+.026]) stitches.push(Math.cos(a)*r,(u-.5)*RIBBON.height,Math.sin(a)*r); }
+  const stitch = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(stitches,3)),new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:.09,depthWrite:false,toneMapped:false})); ribbonStatic.add(stitch);
+  const saved = Number.isInteger(state.ribbonFrame) ? ribbonCurves.get(state.currency)?.find(n=>n.frame===state.ribbonFrame) : null;
+  ribbonSelected = saved || ribbonCurves.get(state.currency)?.at(-1) || ribbonNodes.at(-1); updateRibbonStyle(); setRibbonClip(!state.ribbonRoom);
+}
+function updateRibbonInfo(){
+  const x = ribbonInfoCtx, n = ribbonSelected; x.clearRect(0,0,512,128); if (!n) { ribbonInfo.visible=false; return; }
+  x.fillStyle='rgba(20,18,42,.82)'; x.beginPath(); x.roundRect(2,2,508,124,28); x.fill(); x.lineWidth=2; x.strokeStyle='rgba(255,255,255,.38)'; x.stroke();
+  x.fillStyle=C.pink; x.beginPath(); x.arc(34,34,8,0,Math.PI*2); x.fill(); x.textBaseline='middle'; x.textAlign='left';
+  x.font='800 28px Manrope'; x.fillStyle='#ffffff'; x.fillText(n.cur,54,35); x.font='600 23px "Kode Mono"'; x.fillText(`${n.z>=0?'+':'−'}${Math.abs(n.z).toFixed(2)} z`,54,76);
+  x.font='400 18px "Kode Mono"'; x.fillStyle='#a7a2c9'; x.fillText(utcLabel(n.obs.end),218,36); const d=n.row.delta1?.value; x.fillText(Number.isFinite(d)?`Δ1 ${d>=0?'+':''}${d.toFixed(2)} · rank ${n.row.rank}/8`:`rank ${n.row.rank}/8`,218,76);
+  ribbonInfoTex.needsUpdate=true; ribbonInfo.visible=true; ribbonInfo.position.copy(n.pos); ribbonInfo.position.y+=n.u>.7?-.052:.040;
+}
+function updateRibbonStyle(){
+  if (!ribbonNodes.length || !ribbonLines || !ribbonDots) return;
+  if (!ribbonSelected || ribbonSelected.cur!==state.currency) ribbonSelected = ribbonCurves.get(state.currency)?.at(-1) || ribbonSelected;
+  const paint = (geo,point)=>{ const a=geo.attributes.color.array, cs=geo.userData.cur, us=geo.userData.u;
+    for(let i=0;i<cs.length;i++){ const on=CURRENCIES[cs[i]]===state.currency, fade=.025+.12*Math.pow(us[i],1.25), alpha=on?(point?1:.9)*(.5+.5*us[i]):fade*(point?1:.65), c=on?PINK:WHITE;
+      a[i*3]=c.r*alpha; a[i*3+1]=c.g*alpha; a[i*3+2]=c.b*alpha; } geo.attributes.color.needsUpdate=true; };
+  paint(ribbonLines.geometry,false); paint(ribbonDots.geometry,true);
+  ribbonLabels.forEach(o=>{ const on=o.cur===state.currency; o.s.material.color.set(on?C.pink:'#ffffff'); o.s.material.opacity=on?1:.42; });
+  updateRibbonInfo();
+}
+function ribbonSelect(hit){ const n=hit.object.userData.nodes?.[hit.instanceId]; if(!n)return; ribbonSelected=n; state.ribbonFrame=n.frame; state.currency=n.cur; dashP.dirty=widgetP.dirty=true; updateRibbonStyle(); }
+const setRibbonClip = on => ribbon.traverse(o=>{ if(o.material) for(const m of [o.material].flat()){ m.clippingPlanes=on?winPlanes:null; m.needsUpdate=true; } });
+function ribbonToRoom(){
+  if(state.ribbonRoom)return; if(state.maniRoom)maniFromRoom(); state.ribbonRoom=true;
+  const cam=renderer.xr.isPresenting?renderer.xr.getCamera():camera; cam.getWorldPosition(ribbonRoomAt); ribbonRoomAt.y=1.08;
+  scene.add(ribbon); ribbon.position.copy(ribbonRoomAt); ribbon.scale.setScalar(RIBBON.roomScale); setRibbonClip(false); dioCardP.dirty=true; ribbonCapP.dirty=true;
+  toast('Inside the ribbon · turn it, touch a bead, scrub time by choosing another moment');
+}
+function ribbonFromRoom(){ if(!state.ribbonRoom)return; state.ribbonRoom=false; board.add(ribbon); ribbon.position.copy(ribbonWinPos); ribbon.scale.setScalar(1); setRibbonClip(true); dioCardP.dirty=true; ribbonCapP.dirty=true; }
+const ribbonPlane=new THREE.Plane(), ribbonHit=new THREE.Vector3(), ribbonInv=new THREE.Matrix4(), ribbonCentre=new THREE.Vector3(), ribbonNormal=new THREE.Vector3();
+function ribbonSpinStart(s,point){
+  ribbon.getWorldPosition(ribbonCentre); (renderer.xr.isPresenting?renderer.xr.getCamera():camera).getWorldPosition(ribbonNormal); ribbonNormal.sub(ribbonCentre).normalize();
+  ribbonPlane.setFromNormalAndCoplanarPoint(ribbonNormal,ribbonCentre); ribbonInv.copy(ribbon.matrixWorld).invert();
+  s.drag={kind:'ribbonSpin',plane:ribbonPlane.clone(),inv:ribbonInv.clone(),p0:point.clone().applyMatrix4(ribbonInv),yaw0:state.ribbonYaw||0,tilt0:state.ribbonTilt||0,k:RIBBON.spin/(state.ribbonRoom?RIBBON.roomScale:(boardRoot.scale.x||1))};
+}
+function ribbonSpinUpdate(s,o,d){ const q=s.drag; raycaster.set(o,d); if(!raycaster.ray.intersectPlane(q.plane,ribbonHit))return; ribbonHit.applyMatrix4(q.inv);
+  state.ribbonYaw=q.yaw0+(ribbonHit.x-q.p0.x)*q.k; state.ribbonTilt=Math.max(-.35,Math.min(.75,q.tilt0-(ribbonHit.y-q.p0.y)*q.k)); }
+function updateRibbon(t,visible){
+  ribbon.visible=visible; if(!visible){ribbonReveal=0;ribbonLastT=t;return;} const dt=Math.min(.05,Math.max(0,t-(ribbonLastT??t))); ribbonLastT=t;
+  ribbonReveal+=(1-ribbonReveal)*(1-Math.exp(-dt*RIBBON.reveal)); const held=sources.some(s=>s.drag?.kind==='ribbonSpin'); if(!held)state.ribbonYaw=(state.ribbonYaw||0)+dt*RIBBON.drift;
+  ribbonTurn.rotation.set(state.ribbonTilt||0,state.ribbonYaw||0,0); const e=.72+.28*(1-Math.pow(1-ribbonReveal,3)); ribbonTurn.scale.setScalar(e);
+  ribbonDots.material.size=RIBBON.point*(state.ribbonRoom?1.65:1); ribbonPulse.material.size=RIBBON.pulse*(state.ribbonRoom?1.45:1);
+  const path=ribbonCurves.get(state.currency)||[], pa=ribbonPulse.geometry.attributes.position; for(let j=0;j<RIBBON.pulses;j++){ const u=(t*RIBBON.pulseSpeed+j/RIBBON.pulses)%1, f=u*Math.max(0,path.length-1), i=Math.min(path.length-1,Math.floor(f)), b=Math.min(path.length-1,i+1);
+    if(path.length){ ribbonTmp.copy(path[i].pos).lerp(path[b].pos,f-i); pa.setXYZ(j,ribbonTmp.x,ribbonTmp.y,ribbonTmp.z); } } pa.needsUpdate=true; ribbonPulse.geometry.setDrawRange(0,path.length?RIBBON.pulses:0);
+  if(ribbonInfo.visible){ const k=state.ribbonRoom?1/RIBBON.roomScale:1; ribbonInfo.scale.set(.17*k,.0425*k,1); }
+}
+const ribbonCapP = panel({name:'ribbon caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:470,h:26,margin:8,z:.012,draw(ctx){
+  rr(ctx,0,0,470,26,13); ctx.fillStyle='rgba(35,32,66,.85)'; ctx.fill(); const n=obsOf(state.horizon).length;
+  text(ctx,(state.ribbonRoom?'AROUND YOU · ':'')+`SCULPTURE · ${state.horizon.toUpperCase()} · ${n} OBS · TOUCH A BEAD`,235,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
+}}); ribbonCapP.mesh.visible=false;
+rebuildRibbon(); if(state.ribbonRoom){ state.ribbonRoom=false; ribbonToRoom(); }
+
 // a quiet caption at the window's bottom-left: this is old data
 const maniCapP = panel({name:'manifold caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:430,h:26,margin:8,z:.012,draw(ctx){
   rr(ctx,0,0,430,26,13); ctx.fillStyle = 'rgba(35,32,66,.85)'; ctx.fill();
@@ -2450,6 +2575,7 @@ function targets(){ const list = []; for (const p of panels) if (p.mesh.visible 
   if (mani.visible && (board.visible || maniOut()) && mani.userData.grab) { if (!state.maniRoom) list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit);
     for (const tr of maniTrails) list.push(tr.hit,tr.ribbon);
     if (maniPopP.mesh.visible && popBar.visible) list.push(popBar.userData.hit); if (state.maniOnTable) { list.push(...maniPads); for (const n of growList) list.push(n.hit); } }
+  if (ribbon.visible && ribbonHits && (board.visible || state.ribbonRoom)) list.push(ribbonGrab,ribbonHits);
   return list; }
 // far grabbing: a thin ray easily slips past a small node or a coin a few metres away. When the ray finds nothing it can use
 // (empty space, a bare panel surface, the grid floor), the nearest grabbable thing within a few degrees of it is taken instead.
@@ -2484,7 +2610,9 @@ function pickRaw(origin,dir){
     if (h.object.userData.kind==='maniSpin') {                           // a pin, a currency or its ribbon inside the grab volume wins
       for (const k of ['maniPin','maniUnit','maniTrail']) { const q = hits.find(o=>o.object.userData.kind===k);
         if (q) return {kind:k,object:q.object,point:q.point,distance:q.distance}; } }
-    if (h.object.userData.kind) return {kind:h.object.userData.kind,object:h.object,point:h.point,distance:h.distance};
+    if (h.object.userData.kind==='ribbonSpin') { const q=hits.find(o=>o.object.userData.kind==='ribbonPoint');
+      if(q)return {kind:'ribbonPoint',object:q.object,instanceId:q.instanceId,point:q.point,distance:q.distance}; }
+    if (h.object.userData.kind) return {kind:h.object.userData.kind,object:h.object,instanceId:h.instanceId,point:h.point,distance:h.distance};
     const p = h.object.userData.panel, {lx,ly,region} = p.hit(h.uv);
     if (lx<0||ly<0||lx>p.w||ly>p.h) continue;           // transparent glow margin
     if (holePanels.has(p.name) && inWindow(p.x+lx,p.y+ly)) continue;   // looking through the diorama window
@@ -2513,6 +2641,8 @@ function press(source,hit){
   if (hit.kind==='maniGrow') { maniGrowStart(source,hit); return; }
   if (hit.kind==='maniPopMove') { popMoveStart(source,hit); return; }
   if (hit.kind==='maniSpin') { maniSpinStart(source,hit.point); return; }
+  if (hit.kind==='ribbonPoint') { ribbonSelect(hit); ribbonSpinStart(source,hit.point); return; }
+  if (hit.kind==='ribbonSpin') { ribbonSpinStart(source,hit.point); return; }
   if (hit.kind==='maniMove') { source.drag = {kind:'maniMove'}; return; }
   if (hit.kind) { dragStart(source,hit); return; }
   if (hit.panel===stickP && (hit.region?.id==='pad' || hit.region?.id==='lift')) { stickStart(source,hit.region.id); return; }
@@ -2583,6 +2713,8 @@ function updateXRInput(){
     let best = null;
     for (const m of marbles) if ((board.visible||state.dioOnTable) && dio.visible && m.hit.getWorldPosition(local).distanceTo(tipPos)<.022) best = {currency:m.cur,touch:true};
     if (!best && mani.visible && (board.visible || state.maniOnTable)) for (const q of maniPins) if (q.head.getWorldPosition(local).distanceTo(tipPos)<.02) best = {maniPin:q,touch:true};
+    if (!best && ribbon.visible && (board.visible || state.ribbonRoom)) for (let k=0;k<ribbonNodes.length;k++) { ribbonTurn.localToWorld(local.copy(ribbonNodes[k].pos));
+      if (local.distanceTo(tipPos)<(state.ribbonRoom ? .055 : .018)) { best={ribbonNode:ribbonNodes[k],touch:true}; break; } }
     if (!best) for (const p of panels) {
       if (!p.mesh.visible || !p.mesh.parent.visible || !p.regions.length || p.name==='toast') continue;
       p.mesh.worldToLocal(local.copy(tipPos));
@@ -2598,6 +2730,7 @@ function updateXRInput(){
       if (best.panel===stickP && (best.region.id==='pad' || best.region.id==='lift')) { stickStart(s,best.region.id); s.drag.poke = true; continue; }
       if (best.currency) setCurrency(best.currency);
       else if (best.maniPin) maniInfo(best.maniPin);
+      else if (best.ribbonNode) ribbonSelect({object:ribbonHits,instanceId:ribbonNodes.indexOf(best.ribbonNode)});
       else { const bp = best.panel; bp.press = best.region.id; bp.dirty = true; best.region.onTap(); setTimeout(()=>{ bp.press = null; bp.dirty = true; },180); }
     }
     if (!best?.touch) s.poke.latched = false;
@@ -2609,7 +2742,7 @@ let needsPlace = 0;
 renderer.xr.addEventListener('sessionstart',()=>{ scene.background = null; renderer.setClearAlpha(0); needsPlace = 12; orbitSnap = true;
   FPS.target = renderer.xr.getSession()?.frameRate || 72; });
 renderer.xr.addEventListener('sessionend',()=>{ scene.background = desktopBg; FPS.target = 60; boardRoot.position.set(0,1.4,0); boardRoot.rotation.set(0,0,0);
-  for (const it of roomItems.values()) { roomGroup.remove(it.lines); it.lines.geometry.dispose(); } roomItems.clear(); tablePlane = null; placeGrid(); });
+  for (const it of roomItems.values()) { roomGroup.remove(it.lines); it.lines.geometry.dispose(); } roomItems.clear(); tablePlane = null; if(state.ribbonRoom)ribbonFromRoom(); placeGrid(); });
 if (navigator.xr && await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false)) {
   enterBtn.disabled = false; enterBtn.textContent = 'Enter MR';
   enterBtn.onclick = async () => {
@@ -2641,11 +2774,12 @@ renderer.setAnimationLoop((now,frame)=>{
   // diorama in the window only while the board hides its box; on the table it is always there and the window shows the 2D view
   const folded = state.roomOn && state.roomMin;
   board.visible = !state.hidden && !folded; fixed.visible = !folded; widgetGroup.visible = folded;
-  const wSeen = windowSeen(), seen = state.dioOnTable || wSeen, maniView = state.winView==='manifold';
-  winBox.visible = wSeen && (!state.dioOnTable || maniView); winTank.visible = !maniView; viewPlane.visible = state.dioOnTable && !maniView;
-  dio.visible = !state.hidden && seen && (state.dioOnTable || !maniView); deskItem.visible = state.dioOnTable && !state.hidden;
+  const wSeen = windowSeen(), seen = state.dioOnTable || wSeen, dioView=state.winView==='diorama', maniView = state.winView==='manifold', ribbonView=state.winView==='ribbon';
+  winBox.visible = wSeen && (!state.dioOnTable || !dioView); winTank.visible = dioView; viewPlane.visible = state.dioOnTable && dioView;
+  dio.visible = !state.hidden && seen && (state.dioOnTable || dioView); deskItem.visible = state.dioOnTable && !state.hidden;
   maniDesk.visible = state.maniOnTable && !state.hidden;
   updateManifold(t,!state.hidden && !!MANI_DATA && (maniOut() || (maniView && wSeen))); maniCapP.mesh.visible = maniView && !!MANI_DATA;
+  updateRibbon(t,!state.hidden && (state.ribbonRoom || (ribbonView && wSeen))); ribbonCapP.mesh.visible = ribbonView;
   const minute = new Date().getMinutes()+':'+new Date().getDate();
   if (minute!==lastMinute) { lastMinute = minute; clocksP.dirty = dateP.dirty = newsP.dirty = true; }
   if (toastMsg && now>toastUntil) { toastMsg = ''; toastP.mesh.visible = false; }
