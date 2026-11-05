@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '34';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '35';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -931,7 +931,11 @@ function updateLinks(t){
   for (const g of [linkBeads.geometry,linkFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
 }
 
-const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   // diameter m, spin rad/s, reflections, roughness ×, metalness ×, aged warm tint
+const COIN = {dia:.04, spin:.6, env:.55, envBlur:.04, rough:1, metal:1};   // diameter m, spin rad/s, reflection strength, studio-reflection softness, roughness ×, metalness × (the shared aged-bronze texture carries the matte look)
+// One shared aged-bronze texture set (Substance: Bronz_Taban + Bronz_Kir + Bronz_Cila) for every coin; each coin keeps its own relief normal map.
+// Every coin has the same metal and surface, only the tone differs: the tone multiplies the shared base colour. Tones assigned at random (Ulaş, session 21).
+const COIN_TONE = {USD:'#DCC68E', EUR:'#D99A80', GBP:'#E6DFD3', JPY:'#A9BFA6', AUD:'#D6BC7E', NZD:'#D8A9A0', CAD:'#D9B48A', CHF:'#A88E72', BTC:'#9E9A94'};
+// USD brass · EUR red copper · GBP white bronze · JPY green patina · AUD aged gold · NZD rose bronze · CAD classic bronze · CHF dark bronze · BTC gunmetal
 // ---------------------------------------------------------------- room orbit: the coins circle the user like a solar system (no water in the room)
 // centre = the user (head position, eased, so walking keeps you in the middle) · orbit distance = the user's interest:
 // grab a coin (pinch near it, or pinch-ray and push / pull the hand) and let it go nearer or farther — it keeps orbiting there
@@ -939,7 +943,7 @@ const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   
 const ROOM = {coin:.08, r0:.7, lane:.12, rMin:.35, rMax:3.2, dy:-.15, dyMin:-1.2, dyMax:.8, w:.05, zSpan:2.2, ease:.6,
               bob:.008, follow:2.5, grabNear:.09, push:4, appear:.8,
               haloRim:.85, haloLight:.45,                                       // room halo = only the glowing glass-marble sphere (no particles) · brighter, and lifted toward white so it reads light, not dark
-              coinEnv:.07, coinMetal:.55, coinTint:.8,                          // matter, darker coin copies (less shine)
+              coinEnv:COIN.env, coinMetal:1, coinTint:1,                        // room copies use the same aged-bronze look as the window's coins
               snap:12, throwMin:.55, throwGain:1.8, throwMax:4, drag:1.6, dragY:5, settle:.12, spinBoost:6};   // grab glides into the fingers · flick: release speed m/s → flight, slows down, takes the orbit where it stops   // coin Ø m · default lanes · speed: w rad/s at zero, ×2 per +zSpan, ÷2 per −zSpan
 function crispTexture(){ const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');   // hard-edged dot, no glow falloff
   const gr = g.createRadialGradient(32,32,0,32,32,30); gr.addColorStop(0,'#fff'); gr.addColorStop(.8,'#fff'); gr.addColorStop(1,'rgba(255,255,255,0)');
@@ -1162,7 +1166,11 @@ function updateRoomOrbit(t){
 }
 
 // ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
-const coinEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.04).texture;
+const coinEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),COIN.envBlur).texture;   // soft studio reflections
+const texLoader = new THREE.TextureLoader();
+function bronzeTex(file,srgb){ const t = texLoader.load(`assets/coins/${file}`); t.flipY = false; t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; }
+const bronzeBase = bronzeTex('bronze_baseColor.webp',true), bronzeOrm = bronzeTex('bronze_orm.webp',false);   // ORM: R occlusion · G roughness · B metalness
 const ktx2 = new KTX2Loader().setTranscoderPath('./vendor/addons/libs/basis/').detectSupport(renderer);
 const gltfLoader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
 for (const m of marbles) {
@@ -1173,8 +1181,11 @@ for (const m of marbles) {
     const holder = new THREE.Group(); holder.add(coin);
     holder.scale.setScalar(COIN.dia/Math.max(size.x,size.z));
     holder.rotation.x = Math.PI/2;                            // coin lies flat in the file; stand it upright
-    coin.traverse(o => { if (o.isMesh) { const mt = o.material; mt.envMap = coinEnv; mt.envMapIntensity = COIN.env;
-      mt.roughness = COIN.rough; mt.metalness = Math.min(mt.metalness,1)*COIN.metal; mt.color.multiply(new THREE.Color(COIN.tint)); } });
+    coin.traverse(o => { if (o.isMesh) { const mt = o.material;
+      for (const k of ['map','aoMap','roughnessMap','metalnessMap']) if (mt[k] && mt[k]!==bronzeBase && mt[k]!==bronzeOrm) mt[k].dispose();   // the GLB's own colour/ORM give way to the shared bronze
+      mt.map = bronzeBase; mt.aoMap = bronzeOrm; mt.roughnessMap = bronzeOrm; mt.metalnessMap = bronzeOrm; mt.aoMapIntensity = 1;
+      mt.envMap = coinEnv; mt.envMapIntensity = COIN.env;
+      mt.roughness = COIN.rough; mt.metalness = COIN.metal; mt.color.set(COIN_TONE[m.cur]||'#ffffff'); mt.needsUpdate = true; } });
     roomAddCoin(m.cur,holder);                                // its copy for the room orbit, before the window clipping is set
     m.spin.add(holder); m.coin = holder; m.sphere.visible = false; clipToWindow(holder);
   }, undefined, err => console.warn('coin', m.cur, err));

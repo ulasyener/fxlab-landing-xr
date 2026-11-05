@@ -11,5 +11,6 @@ It does not change or depend on the fxlab code; it only reads snapshots of fxlab
 - NEWS and SIMULATOR show the sample content from Figma; they have no data source yet.
 - Room orbit (planet button on the bottom bar): the coins circle you like a solar system, no water. Orbit speed follows strength (stronger = faster); grab a coin and let it go nearer or farther to set its orbit. The button above it pauses / plays the orbits. Settings sit in `ROOM` in `app.js`.
 - Diorama currencies are 3D coins (`assets/coins/<CODE>.glb`, Substance export packed with KTX2 + meshopt). Size, spin speed and reflection strength sit in `COIN` in `app.js`.
+- Coin material: one shared aged-bronze texture set (`assets/coins/bronze_baseColor.webp`, `bronze_orm.webp`) on every coin; each GLB keeps its own relief normal map. Per-currency tone in `COIN_TONE` (multiplies the base colour).
 
 Fonts: Manrope, Kode Mono (SIL OFL, via Fontsource). Icons: Phosphor (MIT). three.js r170 (MIT), incl. GLTFLoader, KTX2Loader + Basis transcoder, meshopt decoder, RoomEnvironment, XRHandModelFactory. Hand meshes: WebXR Input Profiles generic-hand (MIT).
