@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '38';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '39';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -42,7 +42,7 @@ const state = {
   dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true, gridLift: 0, gridLinked: false, dioQ: null,
   dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
-  winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
+  winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null, maniRoom: false,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
   gridCols: 8, gridRows: 4, gridOff: false, gridFloor: false, gridTableY: null, gridBlocks: {},   // … · grid lowered to the floor (and its table height to go back to) · raised cells {'i,j': height m}     // table grid size in 25 cm cells (pulled from its edges / corners) · whole table grid switched off
   roomOn: false, roomPaused: false, roomCoins: null, roomMin: false,   // roomMin: main screen folded into the small widget   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
@@ -268,6 +268,15 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
     ctx.fillStyle = ink; for (const [a,b] of d) { ctx.beginPath(); ctx.arc(a,b,3,0,Math.PI*2); ctx.fill(); }
     text(ctx,on?'ALL LINKS':'SELECTED',x+48,cy+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
     p.region('links',x-6,y-8,w+12,h+16,()=>{ state.allLinks = !state.allLinks; p.dirty = true; }); }
+  // manifold: step inside it ↔ step out
+  if (!dioView && MANI_DATA) { const x = 452, y = 14, w = 128, h = 34, on = state.maniRoom, hot = p.hover==='inside';
+    ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?16:10; }
+    rr(ctx,x,y,w,h,17); ctx.fillStyle = on ? C.pink : C.card; ctx.fill(); ctx.restore();
+    if (!on) { rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke(); }
+    const ink = on ? C.dark : (hot ? C.pink : C.ink);
+    drawIcon(ctx,on?'sign-out':'person-simple-walk',ink,x+22,y+h/2,18);
+    text(ctx,on?'STEP OUT':'STEP INSIDE',x+38,y+h/2+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
+    p.region('inside',x-6,y-8,w+12,h+16,()=>{ state.maniRoom ? maniFromRoom() : maniToRoom(); p.dirty = true; }); }
   // bring the diorama into the room: onto the table grid, and back into the window
   { const x = 290, y = 14, w = 150, h = 34, on = dioView ? state.dioOnTable : state.maniOnTable, hot = p.hover==='table';
     ctx.save(); if (hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = 12; }
@@ -277,7 +286,8 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
     drawIcon(ctx,'desk',ink,x+22,y+h/2,18);
     text(ctx,on?'BACK TO WINDOW':'PLACE ON TABLE',x+38,y+h/2+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
     p.region('table',x-4,y-8,w+8,h+16,()=>{
-      if (!dioView) { if (!MANI_DATA) return; state.maniOnTable ? maniToWindow() : maniToTable();
+      if (!dioView) { if (!MANI_DATA) return; if (state.maniRoom) { state.maniRoom = false; maniInfo(null); }
+        state.maniOnTable ? maniToWindow() : maniToTable();
         toast(state.maniOnTable?'Manifold on the table · drag it to turn and tilt, two hands to zoom, pinch its frame to move':'Manifold back in its window'); return; }
       state.dioOnTable ? dioToWindow() : dioToTable(); toast(state.dioOnTable?'Diorama on the table · pinch it to move, pull a corner to scale':'Diorama back in its window'); }); }
   cutWindow(ctx,441.5,103.5);
@@ -1878,7 +1888,7 @@ function setWinView(id){
 const MANI = {extent:3, steps:48, bandwidth:.65, interval:.5, minSamples:3, radius:.2, height:.045, tilt:.55, zoom:[.5,2.5],
               surface:'#80a7dd', surfaceA:.26, lowA:.1, contour:C.coral, contourA:.9, ring:'#a7a2c9', ringA:.35,
               pins:3, pinSep:.9, pinMin:.35, pinStem:.032, pinHead:.0075, spin:5.5,
-              zoomTable:12, vExp:.6, markExp:.3};   // above 1× the height grows slower (z^vExp) so it stays walkable · pins / labels grow only z^markExp   // on the table it can grow to a 2.4 m radius — across the whole grid, to walk around   // spin: radians per metre of hand travel
+              zoomTable:12, vExp:.6, markExp:.3, zoomRoom:12};   // zoomRoom: size when the user steps inside it (2.4 m radius around them)   // above 1× the height grows slower (z^vExp) so it stays walkable · pins / labels grow only z^markExp   // on the table it can grow to a 2.4 m radius — across the whole grid, to walk around   // spin: radians per metre of hand travel
 let MANI_DATA = null;
 try { MANI_DATA = await getJSON('data/manifold-concept.json'); } catch (e) { console.warn('manifold concept data',e); }
 const maniSamples = MANI_DATA ? MANI_DATA.frames.flatMap(f=>Object.entries(f.points).map(([cur,p])=>({cur,x:p[0],z:p[2],y:p[1]}))) : [];
@@ -1982,16 +1992,16 @@ function setManiLevel(L){
   mani.userData.lo = lv.lo; mani.userData.hi = lv.hi;
   const g = mani.userData.grab; g.scale.y = Math.max(.2,(MANI.height*(lv.hi-lv.lo)+.06)/g.userData.h0); g.position.y = (lv.hi+lv.lo)/2*MANI.height;
   for (const t of maniTrails) t.label.visible = MANI_LOD[L].labels;
-  setManiClip(!state.maniOnTable); applyManiPose();
+  setManiClip(!maniOut()); applyManiPose();
 }
 // which level fits the hologram's size in the room now (a little hysteresis so it doesn't flicker at a boundary)
-const maniWorldR = () => MANI.radius*(state.maniZoom||1)*(state.maniOnTable ? 1 : (boardRoot.scale.x||1));
+const maniWorldR = () => MANI.radius*(state.maniZoom||1)*(maniOut() ? 1 : (boardRoot.scale.x||1));
 function maniLevelFor(R){ let L = 0; for (let k=1;k<MANI_LOD.length;k++) if (R>=MANI_LOD[k].R*(k<=maniLevel ? .92 : 1.08)) L = k; return L; }
 
 // ---- currency trails: each currency's own path through all frames — where it stood (behaviour plane) and how strong it
 // was (height). Old end faint, newest end bright with a glowing head; a slow pulse runs along toward the present.
 // The selected currency's trail is bright, the others quiet. Colours: CUR_COL (still the placeholder palette).
-const MANI_TRAIL = {sub:4, oldA:.06, newA:.75, dim:.2, pulses:5, speed:.12, head:.006, label:.05};
+const MANI_TRAIL = {sub:4, ribbon:.0035, oldA:.06, newA:.75, dim:.2, pulses:5, speed:.12, head:.006, label:.05};
 const maniTrails = [];
 const trailUni = {uTime:{value:0}};
 function buildManiTrails(){
@@ -2000,8 +2010,13 @@ function buildManiTrails(){
     const pts = F.map(f=>f.points[cur]).filter(Boolean).map(p=>new THREE.Vector3(p[0]*hs,p[1]*vs+.001,p[2]*hs));
     if (pts.length<2) continue;
     const curve = new THREE.CatmullRomCurve3(pts,false,'centripetal'), sm = curve.getPoints((pts.length-1)*MANI_TRAIL.sub);
-    const u = new Float32Array(sm.length); sm.forEach((_,k)=>u[k] = k/(sm.length-1));
-    const g = new THREE.BufferGeometry().setFromPoints(sm); g.setAttribute('aU',new THREE.BufferAttribute(u,1));
+    // ribbon: a flat band along the path (horizontal, its width across the direction of travel)
+    const n = sm.length, rp = new Float32Array(n*6), u = new Float32Array(n*2), idx = [], hw = MANI_TRAIL.ribbon/2;
+    for (let k=0;k<n;k++) { const a = sm[Math.max(0,k-1)], b = sm[Math.min(n-1,k+1)];
+      let tx = b.x-a.x, tz = b.z-a.z; const l = Math.hypot(tx,tz)||1; tx /= l; tz /= l;
+      rp.set([sm[k].x-tz*hw,sm[k].y,sm[k].z+tx*hw, sm[k].x+tz*hw,sm[k].y,sm[k].z-tx*hw],k*6); u[k*2] = u[k*2+1] = k/(n-1);
+      if (k<n-1) idx.push(k*2,k*2+1,k*2+2, k*2+1,k*2+3,k*2+2); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(rp,3)); g.setAttribute('aU',new THREE.BufferAttribute(u,1)); g.setIndex(idx);
     const mat = new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(CUR_COL[cur]||'#ffffff')},uSel:{value:0},uTime:trailUni.uTime},
       vertexShader:`#include <clipping_planes_pars_vertex>
         attribute float aU; varying float vU; void main(){ vU = aU; vec4 mvPosition = modelViewMatrix*vec4(position,1.); gl_Position = projectionMatrix*mvPosition;
@@ -2014,8 +2029,8 @@ function buildManiTrails(){
         float f = fract(vU*${MANI_TRAIL.pulses.toFixed(1)}-uTime*${MANI_TRAIL.speed.toFixed(3)}); a += .5*exp(-f*18.)*vU;
         a *= mix(${MANI_TRAIL.dim.toFixed(2)},1.,uSel);
         gl_FragColor = vec4(mix(uCol,vec3(1.),.25*uSel),a); }`,
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false, clipping:true});
-    const line = new THREE.Line(g,mat); line.renderOrder = 3; maniTurn.add(line);
+      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false, clipping:true, side:THREE.DoubleSide});
+    const ribbon = new THREE.Mesh(g,mat); ribbon.renderOrder = 3; maniTurn.add(ribbon);
     const end = pts[pts.length-1];
     const head = new THREE.Mesh(new THREE.SphereGeometry(MANI_TRAIL.head,12,8),new THREE.MeshBasicMaterial({color:'#ffffff',toneMapped:false})); head.position.copy(end); maniTurn.add(head);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:CUR_COL[cur]||'#ffffff',transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));
@@ -2026,7 +2041,10 @@ function buildManiTrails(){
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
     const label = new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,toneMapped:false}));
     label.scale.set(MANI_TRAIL.label,MANI_TRAIL.label*48/128,1); label.position.copy(end); label.position.y += MANI_TRAIL.head*3.2; label.visible = false; maniTurn.add(label);
-    maniTrails.push({cur,mat,head,glow,label,end});
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(MANI_TRAIL.head*2.5,10,8),new THREE.MeshBasicMaterial({visible:false})); hit.position.copy(end); maniTurn.add(hit);
+    const tr = {cur,mat,head,glow,label,end,ribbon,hit,sm,frames:F.map((f,i)=>f.points[cur]?i:-1).filter(i=>i>=0)};
+    ribbon.userData.kind = 'maniTrail'; ribbon.userData.trail = tr; hit.userData.kind = 'maniUnit'; hit.userData.trail = tr;
+    maniTrails.push(tr);
   }
 }
 if (MANI_DATA) {
@@ -2049,8 +2067,8 @@ const growList = [0,1,2,3].map(k=>{ const a = k*Math.PI/2;
   growNodes.add(ball); return {ball,glow,hit,a}; });
 const GROW = {gap:.03};                                                   // node distance outside the rim (m)
 function layoutGrowNodes(){
-  growNodes.visible = !!state.maniOnTable && !!MANI_DATA; if (!growNodes.visible) return;
-  const z = state.maniZoom||1, r = MANI.radius*z+GROW.gap, y = (mani.userData.lo||0)*MANI.height*maniZY(z);   // at the hologram's foot, on the grid
+  growNodes.visible = !!state.maniOnTable && !state.maniRoom && !!MANI_DATA; if (!growNodes.visible) return;
+  const z = state.maniZoom||1, r = MANI.radius*z+GROW.gap, y = Math.min(mani.userData.lo||0,maniRawLo)*MANI.height*maniZY(z);   // at the hologram's foot, on the grid
   for (const n of growList) n.ball.position.set(Math.cos(n.a)*r,y,Math.sin(n.a)*r);
 }
 const _gc = new THREE.Vector3(), _gp = new THREE.Vector3(), _gPl = new THREE.Plane(), _gUp = new THREE.Vector3(0,1,0);
@@ -2065,6 +2083,7 @@ function maniGrowUpdate(s,o,d){
   if (Math.abs(state.maniZoom-z0)>.001) toast(`Manifold ${(MANI.radius*state.maniZoom*2).toFixed(2)} m across`,900);
 }
 const maniWinPos = mani.position.clone();
+const maniRawLo = maniSamples.length ? Math.min(...maniSamples.map(s=>s.y)) : 0;
 const maniZY = z => z<=1 ? z : Math.pow(z,MANI.vExp);
 // pins, trail heads and labels keep (almost) their size in the room while the terrain grows under them
 const _sv = new THREE.Vector3();
@@ -2074,14 +2093,17 @@ function scaleManiMarkers(z,zy){
     q.head.position.set(q.base.x,q.base.y+dy,q.base.z); q.glow.position.copy(q.head.position); q.hit.position.copy(q.head.position);
     q.head.scale.copy(_sv); q.glow.scale.set(MANI.pinHead*5*m/z,MANI.pinHead*5*m/zy,1); q.hit.scale.copy(_sv); q.foot.scale.copy(_sv);
     const pa = q.stem.geometry.attributes.position; pa.setXYZ(1,q.head.position.x,q.head.position.y,q.head.position.z); pa.needsUpdate = true; }
-  for (const t of maniTrails) { t.head.scale.copy(_sv); t.glow.scale.set(MANI_TRAIL.head*6*m/z,MANI_TRAIL.head*6*m/zy,1);
+  for (const t of maniTrails) { t.head.scale.copy(_sv); t.hit.scale.copy(_sv); t.glow.scale.set(MANI_TRAIL.head*6*m/z,MANI_TRAIL.head*6*m/zy,1);
     t.label.scale.set(MANI_TRAIL.label*m/z,MANI_TRAIL.label*48/128*m/zy,1); t.label.position.set(t.end.x,t.end.y+MANI_TRAIL.head*3.2*m/zy,t.end.z); }
 }
-const maniZoomMax = () => state.maniOnTable ? MANI.zoomTable : MANI.zoom[1];
+const maniOut = () => state.maniOnTable || state.maniRoom;                // out of the window: on the table or around the user
+const maniZoomMax = () => state.maniRoom ? MANI.zoomRoom : state.maniOnTable ? MANI.zoomTable : MANI.zoom[1];
 function applyManiPose(){ const z = state.maniZoom = Math.max(MANI.zoom[0],Math.min(maniZoomMax(),state.maniZoom||1));
   const zy = maniZY(z);
-  maniTurn.rotation.set(0,0,0); maniTurn.rotateX(state.maniTilt ?? (state.maniOnTable ? 0 : MANI.tilt)); maniTurn.rotateY(state.maniYaw||0); maniTurn.scale.set(z,zy,z);
-  if (state.maniOnTable) mani.position.set(0,-(mani.userData.lo||0)*MANI.height*zy+MANI_T.lift,0);
+  maniTurn.rotation.set(0,0,0); maniTurn.rotateX(state.maniTilt ?? (maniOut() ? 0 : MANI.tilt)); maniTurn.rotateY(state.maniYaw||0); maniTurn.scale.set(z,zy,z);
+  const foot = Math.min(mani.userData.lo||0,maniRawLo);                    // lowest of the surface and the ribbons (raw values dip below the smoothed surface)
+  if (state.maniOnTable) mani.position.set(0,-foot*MANI.height*zy+MANI_T.lift,0);
+  else if (state.maniRoom) mani.position.set(maniRoomAt.x,-foot*MANI.height*zy+MANI_ROOM.lift,maniRoomAt.z);   // its lowest point just above the floor
   scaleManiMarkers(z,zy);   // on the table its lowest point sits just above the grid
   layoutGrowNodes(); }
 
@@ -2098,6 +2120,25 @@ const maniPads = [];
 function layoutManiDesk(){ const n = MANI_T.n;
   state.maniI = clampI(state.maniI ?? 0,n,DESK.cols); state.maniJ = clampI(state.maniJ ?? DESK.rows-n,n,DESK.rows);
   maniDesk.position.set(cellCentre(state.maniI,n)-DESK_W/2,0,cellCentre(state.maniJ,n)-DESK_D/2); }
+// ---- step inside: the terrain comes down to the floor and spreads out around the user, who stands at its centre and walks
+// through it. It stays where it was laid down (the user walks, it doesn't follow). Out again → back where it came from.
+const MANI_ROOM = {lift:.01};
+const maniRoomAt = new THREE.Vector3();
+let maniRoomFrom = null;                                                  // {table, zoom, yaw, tilt} to go back to
+function maniToRoom(){
+  if (!MANI_DATA || state.maniRoom) return;
+  maniRoomFrom = {table:state.maniOnTable, zoom:state.maniZoom||1, yaw:state.maniYaw||0, tilt:state.maniTilt};
+  state.maniOnTable = false; state.maniRoom = true; maniInfo(null);
+  (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(maniRoomAt); maniRoomAt.y = 0;
+  scene.add(mani); mani.rotation.set(0,0,0); state.maniTilt = 0; state.maniZoom = MANI.zoomRoom;
+  setManiClip(false); applyManiPose(); dioCardP.dirty = true; maniCapP.dirty = true;
+  toast('Inside the manifold · walk through it, touch a currency or its ribbon');
+}
+function maniFromRoom(){
+  if (!state.maniRoom) return; state.maniRoom = false; maniInfo(null);
+  const f = maniRoomFrom || {table:false,zoom:1,yaw:0,tilt:null}; state.maniZoom = f.zoom; state.maniYaw = f.yaw; state.maniTilt = f.tilt;
+  f.table ? maniToTable() : maniToWindow();
+}
 function maniToTable(){
   state.maniOnTable = true; maniInfo(null); maniDesk.add(mani); mani.rotation.set(0,0,0); state.maniTilt = 0;
   layoutManiDesk(); setManiClip(false); applyManiPose(); dioCardP.dirty = true; maniCapP.dirty = true;
@@ -2143,32 +2184,73 @@ function maniScaleUpdate(s){
   const d = pinchW(s,new THREE.Vector3()).distanceTo(pinchW(dr.other,new THREE.Vector3()));
   state.maniZoom = dr.z0*d/dr.d0; applyManiPose();
 }
-// info pop-up: floats on the window glass next to the touched pin
-let maniOpen = null;
-const MANI_POP = {w:250, h:168};
+// info pop-up. Peaks / pits (pins), a currency (its glowing head on the terrain) or any point of its ribbon can be touched:
+// a thin line rises from the touched spot and the window opens at its top. In the window it sits on the glass beside the spot.
+let maniOpen = null, maniOpenAt = 0;
+const MANI_POP = {w:260, h:176, rise:.07, riseRoom:.32, lineT:.22, openT:.14};   // rise: line length above the spot (m) · grow / open times (s)
+const fmtFrame = i => { const d = new Date(MANI_DATA.frames[i].end), M = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  return `${String(d.getUTCDate()).padStart(2,'0')} ${M[d.getUTCMonth()]} ${String(d.getUTCHours()).padStart(2,'0')}:00`; };
+const zs = v => `${v>=0?'+':'−'}${Math.abs(v).toFixed(2)} z`;
+// nearest currencies on the behaviour plane in one frame = those moving most alike then
+function alike(i,cur){ const P = MANI_DATA.frames[i].points, me = P[cur];
+  return Object.entries(P).filter(([c])=>c!==cur).map(([c,p])=>[c,Math.hypot(p[0]-me[0],p[2]-me[2])]).sort((a,b)=>a[1]-b[1]).slice(0,3); }
+function maniTouch(hit){
+  const tr = hit.object.userData.trail; setCurrency(tr.cur);
+  if (hit.kind==='maniUnit') { maniInfo({kind:'unit',key:'u'+tr.cur,tr,frame:tr.frames[tr.frames.length-1],local:tr.end.clone()}); return; }
+  const p = maniTurn.worldToLocal(hit.point.clone()); let best = 0, bd = Infinity;          // nearest point of the path → its frame
+  tr.sm.forEach((q,k)=>{ const d = q.distanceToSquared(p); if (d<bd) { bd = d; best = k; } });
+  const fi = tr.frames[Math.min(tr.frames.length-1,Math.round(best/MANI_TRAIL.sub))];
+  maniInfo({kind:'point',key:'p'+tr.cur+fi,tr,frame:fi,local:tr.sm[best].clone()});
+}
 const maniPopP = panel({name:'manifold info',x:0,y:0,w:MANI_POP.w,h:MANI_POP.h,margin:16,z:.02,draw(ctx,p){
-  const pin = maniOpen; if (!pin) return;
-  ctx.save(); ctx.shadowColor = C.pink; ctx.shadowBlur = 14; rr(ctx,0,0,MANI_POP.w,MANI_POP.h,18); ctx.fillStyle = 'rgba(30,27,58,.94)'; ctx.fill(); ctx.restore();
-  rr(ctx,0,0,MANI_POP.w,MANI_POP.h,18); ctx.lineWidth = 1.5; ctx.strokeStyle = C.pink; ctx.stroke();
-  drawIcon(ctx,pin.kind==='peak'?'caret-up':'caret-down',C.coral,24,24,16);
-  text(ctx,pin.kind==='peak'?'PEAK':'PIT',38,25,{font:'800 13px Manrope',color:C.ink,ls:'.5px'});
-  const hot = p.hover==='close'; drawIcon(ctx,'x-circle',hot?C.pink:C.muted,MANI_POP.w-24,24,20);
-  p.region('close',MANI_POP.w-48,0,48,48,()=>maniInfo(null));
-  text(ctx,'MEAN STRENGTH',18,56,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
-  text(ctx,`${pin.est.mean>=0?'+':''}${pin.est.mean.toFixed(2)} z`,18,80,{font:'600 22px "Kode Mono"',color:C.ink});
-  text(ctx,`± ${pin.est.disp.toFixed(2)} · ${pin.est.n} samples`,18,101,{font:'400 11px "Kode Mono"',color:C.dim});
-  text(ctx,'GATHERED HERE',18,126,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
-  pin.share.filter(([,sh])=>sh>=.01).slice(0,3).forEach(([cur,sh],i)=>{ const x = 18+i*76;
-    text(ctx,cur,x,150,{font:'800 13px Manrope',color:i?C.ink:C.pink}); text(ctx,Math.round(sh*100)+'%',x+34,150.5,{font:'400 11px "Kode Mono"',color:C.dim}); });
+  const o = maniOpen; if (!o) return; const W = MANI_POP.w, H = MANI_POP.h;
+  ctx.save(); ctx.shadowColor = C.pink; ctx.shadowBlur = 14; rr(ctx,0,0,W,H,18); ctx.fillStyle = 'rgba(30,27,58,.94)'; ctx.fill(); ctx.restore();
+  rr(ctx,0,0,W,H,18); ctx.lineWidth = 1.5; ctx.strokeStyle = C.pink; ctx.stroke();
+  const hot = p.hover==='close'; drawIcon(ctx,'x-circle',hot?C.pink:C.muted,W-24,24,20);
+  p.region('close',W-48,0,48,48,()=>maniInfo(null));
+  if (o.kind==='peak' || o.kind==='pit') {
+    drawIcon(ctx,o.kind==='peak'?'caret-up':'caret-down',C.coral,24,24,16);
+    text(ctx,o.kind==='peak'?'PEAK':'PIT',38,25,{font:'800 13px Manrope',color:C.ink,ls:'.5px'});
+    text(ctx,'MEAN STRENGTH',18,58,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
+    text(ctx,zs(o.est.mean),18,83,{font:'600 22px "Kode Mono"',color:C.ink});
+    text(ctx,`± ${o.est.disp.toFixed(2)} · ${o.est.n} samples`,18,105,{font:'400 11px "Kode Mono"',color:C.dim});
+    text(ctx,'GATHERED HERE',18,132,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
+    o.share.filter(([,sh])=>sh>=.01).slice(0,3).forEach(([cur,sh],i)=>{ const x = 18+i*78;
+      text(ctx,cur,x,157,{font:'800 13px Manrope',color:i?C.ink:C.pink}); text(ctx,Math.round(sh*100)+'%',x+34,157.5,{font:'400 11px "Kode Mono"',color:C.dim}); });
+    return;
+  }
+  // a currency: latest state (head) or one moment of its path (ribbon)
+  const {tr,frame} = o, P = MANI_DATA.frames[frame].points[tr.cur], col = CUR_COL[tr.cur]||C.ink;
+  ctx.beginPath(); ctx.arc(24,24,5,0,Math.PI*2); ctx.fillStyle = col; ctx.fill();
+  text(ctx,tr.cur,36,25,{font:'800 15px Manrope',color:C.ink,ls:'.5px'});
+  text(ctx,o.kind==='unit'?'LATEST · '+fmtFrame(frame):fmtFrame(frame),W-48,25,{font:'400 11px "Kode Mono"',color:C.muted,align:'right'});
+  text(ctx,'STRENGTH',18,58,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
+  text(ctx,zs(P[1]),18,83,{font:'600 22px "Kode Mono"',color:P[1]>=0?C.ink:C.coral});
+  const ys = tr.frames.map(i=>MANI_DATA.frames[i].points[tr.cur][1]), first = ys[0];
+  if (o.kind==='unit') text(ctx,`since ${fmtFrame(tr.frames[0]).slice(0,6)} ${zs(P[1]-first)} · range ${Math.min(...ys).toFixed(1)} … ${Math.max(...ys).toFixed(1)}`,18,105,{font:'400 11px "Kode Mono"',color:C.dim});
+  else text(ctx,`step ${tr.frames.indexOf(frame)+1} / ${tr.frames.length} · now ${zs(ys[ys.length-1])}`,18,105,{font:'400 11px "Kode Mono"',color:C.dim});
+  text(ctx,'MOVING ALIKE',18,132,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
+  alike(frame,tr.cur).forEach(([c,d],i)=>{ const x = 18+i*78;
+    text(ctx,c,x,157,{font:'800 13px Manrope',color:CUR_COL[c]||C.ink}); text(ctx,d.toFixed(1),x+34,157.5,{font:'400 11px "Kode Mono"',color:C.dim}); });
 }});
 maniPopP.mesh.visible = false;
-function maniInfo(pin){
-  maniOpen = maniOpen===pin ? null : pin; maniPopP.mesh.visible = !!maniOpen; maniPopP.dirty = true;
-  const home = state.maniOnTable ? scene : board; if (maniPopP.mesh.parent!==home) home.add(maniPopP.mesh);   // on the table it floats in the room
+// the rising line, and a small ring where it starts
+const leadLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.85,depthWrite:false,toneMapped:false}));
+leadLine.frustumCulled = false; leadLine.visible = false; leadLine.renderOrder = 5; scene.add(leadLine);
+const leadDot = new THREE.Mesh(new THREE.RingGeometry(.004,.0065,24).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({color:C.pink,transparent:true,opacity:.9,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
+leadDot.visible = false; leadDot.renderOrder = 5; scene.add(leadDot);
+function maniInfo(o){
+  maniOpen = (maniOpen && o && (maniOpen===o || (maniOpen.key && maniOpen.key===o.key))) ? null : o;
+  maniOpenAt = performance.now(); maniPopP.mesh.visible = false; maniPopP.dirty = true;
+  leadLine.visible = leadDot.visible = !!maniOpen;
+  const home = maniOut() ? scene : board; if (maniPopP.mesh.parent!==home) home.add(maniPopP.mesh);   // out of the window it floats in the room
   scaleManiMarkers(state.maniZoom||1,maniZY(state.maniZoom||1));
   for (const q of maniPins) { const on = q===maniOpen; if (on) q.head.scale.multiplyScalar(1.5); q.glow.material.opacity = on?1:.7; }
 }
-const popW = new THREE.Vector3();
+const popW = new THREE.Vector3(), popA = new THREE.Vector3(), popT = new THREE.Vector3(), popC = new THREE.Vector3();
+const anchorOf = (o,out) => o.head ? o.head.getWorldPosition(out) : maniTurn.localToWorld(out.copy(o.local));
 function updateManifold(t,visible){
   mani.visible = visible;
   if (!visible) { if (maniOpen) maniInfo(null); return; }
@@ -2178,19 +2260,29 @@ function updateManifold(t,visible){
     tr.glow.material.opacity = (on ? .9 : .4)+.15*Math.sin(t*2.4+tr.head.position.x*40); }
   if (growNodes.visible) for (const n of growList) n.glow.material.opacity = .5+.3*Math.sin(t*2.2+n.a);
   for (const q of maniPins) if (q!==maniOpen) q.glow.material.opacity = .55+.25*Math.sin(t*2+q.x);
-  if (maniOpen && state.maniOnTable) {                                        // in the room: above the pin, turned to the viewer
-    maniOpen.head.getWorldPosition(popW); maniPopP.mesh.position.copy(popW); maniPopP.mesh.position.y += MANI_POP.h/2*S+.03;
-    (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(popW); maniPopP.mesh.lookAt(popW);
-  } else if (maniOpen) {                                                      // keep the pop-up beside its pin, on the glass
-    maniOpen.head.getWorldPosition(popW); board.worldToLocal(popW);
-    const half = MANI_POP.w/2*S, side = popW.x>(WIN.x+WIN.w/2-BW/2)*S ? -1 : 1;
-    maniPopP.mesh.position.set(popW.x+side*(half+.012),popW.y+MANI_POP.h/2*S+.012,.02);   // above and beside the pin, never over it
+  if (maniOpen) {
+    const el = (performance.now()-maniOpenAt)/1000, grow = Math.min(1,el/MANI_POP.lineT), ease = 1-(1-grow)**3;
+    anchorOf(maniOpen,popA); leadDot.position.copy(popA); leadDot.position.y += .001;
+    if (maniOut()) {                                                          // in the room: straight up from the spot, turned to the viewer
+      popT.copy(popA); popT.y += state.maniRoom ? MANI_POP.riseRoom : MANI_POP.rise;
+      maniPopP.mesh.position.copy(popT); maniPopP.mesh.position.y += MANI_POP.h/2*S;
+      (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(popC); popC.y = maniPopP.mesh.position.y; maniPopP.mesh.lookAt(popC);
+    } else {                                                                  // in the window: beside the spot on the glass, the line runs to its corner
+      popW.copy(popA); board.worldToLocal(popW);
+      const half = MANI_POP.w/2*S, side = popW.x>(WIN.x+WIN.w/2-BW/2)*S ? -1 : 1;
+      maniPopP.mesh.position.set(popW.x+side*(half+.012),popW.y+MANI_POP.h/2*S+.012,.02);
+      popT.set(popW.x+side*.012,popW.y+.012,.02); board.localToWorld(popT);
+    }
+    const pa = leadLine.geometry.attributes.position; pa.setXYZ(0,popA.x,popA.y,popA.z);
+    pa.setXYZ(1,popA.x+(popT.x-popA.x)*ease,popA.y+(popT.y-popA.y)*ease,popA.z+(popT.z-popA.z)*ease); pa.needsUpdate = true;
+    const op = Math.max(0,Math.min(1,(el-MANI_POP.lineT)/MANI_POP.openT));   // the window opens once the line has arrived
+    maniPopP.mesh.visible = op>0; maniPopP.mesh.scale.setScalar(.75+.25*(1-(1-op)**3));
   }
 }
 // a quiet caption at the window's bottom-left: this is old data
 const maniCapP = panel({name:'manifold caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:430,h:26,margin:8,z:.012,draw(ctx){
   rr(ctx,0,0,430,26,13); ctx.fillStyle = 'rgba(35,32,66,.85)'; ctx.fill();
-  text(ctx,(state.maniOnTable?'ON THE TABLE · ':'')+'CONCEPT · OLD DATA · 5H · 03 SEP – 19 OCT 2026',215,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
+  text(ctx,(state.maniRoom?'AROUND YOU · ':state.maniOnTable?'ON THE TABLE · ':'')+'CONCEPT · OLD DATA · 5H · 03 SEP – 19 OCT 2026',215,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
 }});
 maniCapP.mesh.visible = false;
 if (MANI_DATA) setManiLevel(0);
@@ -2226,7 +2318,8 @@ function targets(){ const list = []; for (const p of panels) if (p.mesh.visible 
     if (state.gridEdit) { list.push(cellPad,...blockHits); if (extHandle.visible) list.push(extHandle.userData.hit); } }
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit);
   if (orbitRoot.visible && state.roomOn) for (const rc of roomCoins) if (!rc.held) list.push(rc.hit);
-  if (mani.visible && (board.visible || state.maniOnTable) && mani.userData.grab) { list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit); if (state.maniOnTable) { list.push(...maniPads); for (const n of growList) list.push(n.hit); } }
+  if (mani.visible && (board.visible || maniOut()) && mani.userData.grab) { if (!state.maniRoom) list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit);
+    for (const tr of maniTrails) list.push(tr.hit,tr.ribbon); if (state.maniOnTable) { list.push(...maniPads); for (const n of growList) list.push(n.hit); } }
   return list; }
 // far grabbing: a thin ray easily slips past a small node or a coin a few metres away. When the ray finds nothing it can use
 // (empty space, a bare panel surface, the grid floor), the nearest grabbable thing within a few degrees of it is taken instead.
@@ -2235,7 +2328,7 @@ const _ap = new THREE.Vector3();
 function assistPick(origin,dir,maxDist){
   let best = null, bestA = ASSIST.deg*Math.PI/180;
   for (const o of targets()) { const u = o.userData, k = u.kind;
-    if (!(u.roomCoin || k==='gridResize' || k==='gridExtrude' || k==='dioScale' || k==='maniGrow')) continue;   // coins in the room, grid / table handles
+    if (!(u.roomCoin || k==='gridResize' || k==='gridExtrude' || k==='dioScale' || k==='maniGrow' || k==='maniUnit')) continue;   // coins in the room, grid / table handles
     o.getWorldPosition(_ap); const v = _ap.clone().sub(origin), d = v.length();
     if (d<ASSIST.min || d>maxDist) continue;
     const a = v.angleTo(dir); if (a<bestA) { bestA = a; best = {o,d,p:_ap.clone()}; } }
@@ -2258,8 +2351,9 @@ function pickRaw(origin,dir){
       if (f) { const p = f.object.userData.panel, {region} = p.hit(f.uv); return {panel:p,region,point:f.point,distance:f.distance}; } }
     if (h.object.userData.roomCoin) return {roomCoin:h.object.userData.roomCoin,point:h.point,distance:h.distance};
     if (h.object.userData.currency) return {currency:h.object.userData.currency,point:h.point,distance:h.distance};
-    if (h.object.userData.kind==='maniSpin') { const q = hits.find(o=>o.object.userData.kind==='maniPin');   // a pin inside the grab volume wins
-      if (q) return {kind:'maniPin',object:q.object,point:q.point,distance:q.distance}; }
+    if (h.object.userData.kind==='maniSpin') {                           // a pin, a currency or its ribbon inside the grab volume wins
+      for (const k of ['maniPin','maniUnit','maniTrail']) { const q = hits.find(o=>o.object.userData.kind===k);
+        if (q) return {kind:k,object:q.object,point:q.point,distance:q.distance}; } }
     if (h.object.userData.kind) return {kind:h.object.userData.kind,object:h.object,point:h.point,distance:h.distance};
     const p = h.object.userData.panel, {lx,ly,region} = p.hit(h.uv);
     if (lx<0||ly<0||lx>p.w||ly>p.h) continue;           // transparent glow margin
@@ -2285,6 +2379,7 @@ function press(source,hit){
   if (hit.roomCoin) { roomRayGrab(source,hit); return; }
   if (hit.currency) { setCurrency(hit.currency); return; }
   if (hit.kind==='maniPin') { maniInfo(hit.object.userData.pin); return; }
+  if (hit.kind==='maniUnit' || hit.kind==='maniTrail') { maniTouch(hit); return; }
   if (hit.kind==='maniGrow') { maniGrowStart(s,hit); return; }
   if (hit.kind==='maniSpin') { maniSpinStart(source,hit.point); return; }
   if (hit.kind==='maniMove') { source.drag = {kind:'maniMove'}; return; }
@@ -2419,7 +2514,7 @@ renderer.setAnimationLoop((now,frame)=>{
   winBox.visible = wSeen && (!state.dioOnTable || maniView); winTank.visible = !maniView; viewPlane.visible = state.dioOnTable && !maniView;
   dio.visible = !state.hidden && seen && (state.dioOnTable || !maniView); deskItem.visible = state.dioOnTable && !state.hidden;
   maniDesk.visible = state.maniOnTable && !state.hidden;
-  updateManifold(t,!state.hidden && !!MANI_DATA && (state.maniOnTable || (maniView && wSeen))); maniCapP.mesh.visible = maniView && !!MANI_DATA;
+  updateManifold(t,!state.hidden && !!MANI_DATA && (maniOut() || (maniView && wSeen))); maniCapP.mesh.visible = maniView && !!MANI_DATA;
   const minute = new Date().getMinutes()+':'+new Date().getDate();
   if (minute!==lastMinute) { lastMinute = minute; clocksP.dirty = dateP.dirty = newsP.dirty = true; }
   if (toastMsg && now>toastUntil) { toastMsg = ''; toastP.mesh.visible = false; }
