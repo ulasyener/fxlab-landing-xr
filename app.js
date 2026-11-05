@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '31';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '32';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -938,7 +938,7 @@ const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   
 // orbit speed ← strength (latest observation of the chosen horizon): stronger = faster, weaker = slower, all slow · pause stops every orbit
 const ROOM = {coin:.08, r0:.7, lane:.12, rMin:.35, rMax:3.2, dy:-.15, dyMin:-1.2, dyMax:.8, w:.05, zSpan:2.2, ease:.6,
               bob:.008, follow:2.5, grabNear:.09, push:4, appear:.8,
-              haloDensity:.45, haloGlow:.28, haloRim:0, haloSize:.6,             // quieter halo in the room, so the coin itself reads: crisp dots, no glow, no rim
+              haloRim:.55,                                                      // room halo = only the glowing glass-marble sphere (no particles), kept soft so it does not tire the eye
               coinEnv:.07, coinMetal:.55, coinTint:.8,                          // matter, darker coin copies (less shine)
               snap:12, throwMin:.55, throwGain:1.8, throwMax:4, drag:1.6, dragY:5, settle:.12, spinBoost:6};   // grab glides into the fingers · flick: release speed m/s → flight, slows down, takes the orbit where it stops   // coin Ø m · default lanes · speed: w rad/s at zero, ×2 per +zSpan, ÷2 per −zSpan
 function crispTexture(){ const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');   // hard-edged dot, no glow falloff
@@ -953,11 +953,12 @@ const roomCoins = CURRENCIES.map((cur,i)=>{
   const fallback = new THREE.Mesh(new THREE.SphereGeometry(.02,32,16),new THREE.MeshStandardMaterial({color:'#eef3ff',emissive:'#5d86ff',emissiveIntensity:.6,roughness:.2,metalness:.1}));
   g.add(fallback);
   const spin = new THREE.Group(); g.add(spin);
-  const halo = makeHalo(cur,ROOM.haloDensity); halo.pts.material.size = HALO.size*ROOM_K/WIN.fill*ROOM.haloSize; halo.pts.material.map = crispTex;
-  g.add(halo.pts); if (ROOM.haloRim>0) g.add(halo.rim);
+  const halo = makeHalo(cur,.05);                                            // only its rim is used in the room: no particles around the coin
+  halo.pts.geometry.dispose(); halo.pts.material.dispose(); halo.pts = null;
+  g.add(halo.rim);
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false})); g.add(hit);
   const rc = {cur,i,g,fallback,spin,halo,hit,phase:i*.7,r:ROOM.r0+i*ROOM.lane,a:0,dy:ROOM.dy,w:ROOM.w,held:false,z:0,
-              glowK:ROOM.haloGlow, rimK:ROOM.haloRim, fly:null, spinA:0, spinV:COIN.spin};
+              fly:null, spinA:0, spinV:COIN.spin};
   hit.userData.roomCoin = rc; return rc;
 });
 function roomAddCoin(cur,holder){                                            // a copy of the window's coin, with its own (unclipped) materials
@@ -1048,51 +1049,82 @@ function roomDrop(rc){
   toast(`${rc.cur} · ${Math.round(rc.r*100)} cm from you`,1600);
 }
 addEventListener('wheel',e=>{ if (mouse.drag?.kind==='roomCoin' && mouse.drag.mode==='ray') { mouse.drag.dist = Math.max(.15,Math.min(ROOM.rMax+.5,mouse.drag.dist-e.deltaY*.002)); e.preventDefault(); } },{passive:false});
-// ---- room links: parabolic particle cables from the selected coin to the others (all pairs with ALL LINKS)
-// same reading as the window: colour ← selected stronger (up tint) / weaker (down tint), other pairs soft pink ·
-// flow weak → strong, speed and count ← strength gap · breathing ← speculator CoT gap · crisp dots, no glow
-const RLINK = {arc:.12, arcPer:.22, bead:.014, beadSize:.0065, flowSize:.012, maxBeads:260, maxFlow:40, glow:.75, flowGlow:1.1};
+// ---- room network: every pair of coins is joined by a bundle of fine hair-strands arching over the user's head
+// (Ulaş, session 20): always there but faint · the selected coin's bundles come up bright · strength of a link ← z gap of the
+// two currencies (chosen horizon, latest observation): wider gap = more strands, wider bundle, more and faster pulses ·
+// colour flows from one currency's own colour to the other's along the strands · pulses travel weak → strong ·
+// strands thin out with distance from the head
+const CUR_COL = {USD:'#8fb4ff', EUR:'#b39dff', GBP:'#e2a8ee', JPY:'#ff9fb3', AUD:'#ffbe85', NZD:'#efe08a', CAD:'#9be3ae', CHF:'#8adfe6'};   // Claude's placeholder palette — awaiting Ulaş
+const curCol = Object.fromEntries(Object.entries(CUR_COL).map(([k,v])=>[k,new THREE.Color(v)]));
+const RLINK = {over:.25, overPer:.18, pull:.65,            // arc top: head height + over + overPer × span (m) · how far the arc leans in over the user
+               strandsMax:9, strandsDim:3, bundle:.02, bundlePer:.11,   // strands per bundle (selected / others) · bundle half-width at the top, m
+               bead:.009, beadSize:.0034, beadsMax:240,    // hair: dense tiny dots
+               glow:.5, faint:.12,                         // selected bundles · all other bundles
+               pulseSize:.011, pulses:5, speed:.12, speedPer:.45, pulseGlow:1.1,
+               fadeNear:1.2, fadeFar:4, node:.016};
 const roomPairs = []; for (let a=0;a<8;a++) for (let b=a+1;b<8;b++) roomPairs.push([a,b]);
-const rBeads = additivePoints(RLINK.beadSize,roomPairs.length*RLINK.maxBeads), rFlow = additivePoints(RLINK.flowSize,roomPairs.length*(RLINK.maxFlow+2));
-rBeads.material.map = rFlow.material.map = crispTex; orbitRoot.add(rBeads,rFlow);
-const rA = new THREE.Vector3(), rB = new THREE.Vector3(), rM = new THREE.Vector3(), rP = new THREE.Vector3();
-function roomNode(rc,to,out){ const R = (HALO.r[2]+HALO.spread*.5)*rc.halo.size*rc.g.scale.x;
-  return out.copy(to.g.position).sub(rc.g.position).normalize().multiplyScalar(R).add(rc.g.position); }
-const bez = (u,out) => { const k = 1-u; return out.set(k*k*rA.x+2*k*u*rM.x+u*u*rB.x, k*k*rA.y+2*k*u*rM.y+u*u*rB.y, k*k*rA.z+2*k*u*rM.z+u*u*rB.z); };
+const rBeads = additivePoints(RLINK.beadSize,roomPairs.length*RLINK.strandsMax*(RLINK.beadsMax+1));
+const rFlow = additivePoints(RLINK.pulseSize,roomPairs.length*(RLINK.strandsMax*(RLINK.pulses+1)+2));
+rBeads.material.map = crispTex; orbitRoot.add(rBeads,rFlow);
+const strandSeed = Array.from({length:RLINK.strandsMax},(_,k)=>{                 // fixed spread of each strand across the bundle
+  const a = k*2.39996323, r = k ? Math.sqrt(k/(RLINK.strandsMax-1)) : 0; return [Math.cos(a)*r,Math.sin(a)*r,k*1.7]; });
+const rA = new THREE.Vector3(), rB = new THREE.Vector3(), rM = new THREE.Vector3(), rC = new THREE.Vector3(), rP = new THREE.Vector3();
+const rSide = new THREE.Vector3(), rUp = new THREE.Vector3(), rTmp = new THREE.Vector3(), Y_UP = new THREE.Vector3(0,1,0);
+function roomNode(rc,to,out){                                                     // leaves the glass sphere toward the other coin, leaning upward
+  const R = HALO.rimR*rc.halo.size*rc.g.scale.x;
+  rTmp.copy(to.g.position).sub(rc.g.position).normalize(); rTmp.y += 1.2; rTmp.normalize();
+  return out.copy(rTmp).multiplyScalar(R).add(rc.g.position); }
+const bez = (u,c,out) => { const k = 1-u; return out.set(k*k*rA.x+2*k*u*c.x+u*u*rB.x, k*k*rA.y+2*k*u*c.y+u*u*rB.y, k*k*rA.z+2*k*u*c.z+u*u*rB.z); };
+const fadeAt = p => { const d = Math.hypot(p.x-roomHead.x,p.y-roomHead.y,p.z-roomHead.z);
+  return 1-Math.max(0,Math.min(1,(d-RLINK.fadeNear)/(RLINK.fadeFar-RLINK.fadeNear)))*.85; };
 function updateRoomLinks(t){
   const bp = rBeads.geometry.attributes.position.array, bc = rBeads.geometry.attributes.color.array;
   const fp = rFlow.geometry.attributes.position.array, fc = rFlow.geometry.attributes.color.array;
   let nb = 0, nf = 0; const selIdx = CURRENCIES.indexOf(state.currency);
   roomPairs.forEach(([ia,ib],pi)=>{
-    const involvesSel = ia===selIdx || ib===selIdx;
-    if (!state.allLinks && !involvesSel) return;
-    const from = involvesSel ? roomCoins[selIdx] : roomCoins[ia], to = involvesSel ? roomCoins[ia===selIdx?ib:ia] : roomCoins[ib];
-    roomNode(from,to,rA); roomNode(to,from,rB);
-    const dist = rA.distanceTo(rB), peak = RLINK.arc+RLINK.arcPer*dist;
-    rM.addVectors(rA,rB).multiplyScalar(.5); rM.y += peak*2;               // control point: the arc's top sits `peak` above the midpoint
-    const len = dist+peak*1.3;
-    const gap = to.z-from.z, gapN = Math.min(1,Math.abs(gap)/2);
-    if (involvesSel) tmpCol.copy(from.z>=to.z ? UP : DOWN); else tmpCol.copy(PINK);
-    const dim = involvesSel ? 1 : .45;
-    const ca = cotOf(from.cur), cb = cotOf(to.cur);
-    const cotGap = ca && cb ? Math.min(1,Math.abs(ca.groups[1].pctOi-cb.groups[1].pctOi)/60) : 0;
-    const breath = .6+(.12+.3*cotGap)*Math.sin(t*(1.2+cotGap*1.4)+pi);
-    const n = Math.min(RLINK.maxBeads,Math.max(8,Math.floor(len/RLINK.bead)));
-    for (let j=0;j<=n;j++){ const s = j/n; bez(s,rP);
-      bp[nb*3] = rP.x; bp[nb*3+1] = rP.y; bp[nb*3+2] = rP.z;
-      const dirS = gap>=0 ? s : 1-s, packet = Math.pow(.5+.5*Math.sin(dirS*22-t*(2.5+4*gapN)),6);
-      const a = RLINK.glow*breath*dim*(.45+.35*packet)*(.4+.6*Math.sin(Math.PI*s));
-      bc[nb*3] = tmpCol.r*a; bc[nb*3+1] = tmpCol.g*a; bc[nb*3+2] = tmpCol.b*a; nb++; }
-    const nFlow = Math.round(6+(RLINK.maxFlow-6)*gapN), v = .12+.28*gapN;
-    for (let j=0;j<nFlow;j++){ let u = ((j/nFlow)+t*v/Math.max(len,.01))%1; if (gap<0) u = 1-u; bez(u,rP);
-      fp[nf*3] = rP.x; fp[nf*3+1] = rP.y; fp[nf*3+2] = rP.z;
-      const a = Math.sin(Math.PI*u)*RLINK.flowGlow*dim*(.7+.3*breath);
-      fc[nf*3] = Math.min(1,tmpCol.r*a+.15*a); fc[nf*3+1] = Math.min(1,tmpCol.g*a+.15*a); fc[nf*3+2] = Math.min(1,tmpCol.b*a+.15*a); nf++; }
-    for (const N of [rA,rB]){ fp[nf*3] = N.x; fp[nf*3+1] = N.y; fp[nf*3+2] = N.z;            // connector balls on the halos
-      fc[nf*3] = Math.min(1,.5*dim+tmpCol.r*.4); fc[nf*3+1] = Math.min(1,.5*dim+tmpCol.g*.4); fc[nf*3+2] = Math.min(1,.5*dim+tmpCol.b*.4); nf++; }
+    const hot = ia===selIdx || ib===selIdx;
+    const A = roomCoins[ia], B = roomCoins[ib];
+    roomNode(A,B,rA); roomNode(B,A,rB);
+    // parabola over the head: the top leans in toward the user and rises above head height, higher for longer spans
+    const span = Math.hypot(rB.x-rA.x,rB.z-rA.z);
+    const peakY = orbitCentre.y+RLINK.over+RLINK.overPer*span;
+    rM.addVectors(rA,rB).multiplyScalar(.5);
+    rC.set(rM.x+(orbitCentre.x-rM.x)*RLINK.pull, 2*peakY-rM.y, rM.z+(orbitCentre.z-rM.z)*RLINK.pull);
+    rSide.subVectors(rB,rA).cross(Y_UP); if (rSide.lengthSq()<1e-8) rSide.set(1,0,0); rSide.normalize();
+    rUp.subVectors(rB,rA).cross(rSide).normalize();
+    const len = rA.distanceTo(rC)+rC.distanceTo(rB);
+    const gap = B.z-A.z, gapN = Math.min(1,Math.abs(gap)/2);              // z gap → link strength
+    const strands = hot ? 1+Math.round((RLINK.strandsMax-1)*gapN) : Math.max(1,Math.round(RLINK.strandsDim*gapN));
+    const width = (RLINK.bundle+RLINK.bundlePer*gapN)*2;                 // control-point offset → half-width at the top
+    const base = (hot ? RLINK.glow : RLINK.faint)/Math.sqrt(strands);    // more strands overlap brighter, but never blow out
+    const cA = curCol[A.cur], cB = curCol[B.cur];
+    const n = Math.min(RLINK.beadsMax,Math.max(12,Math.floor(len/RLINK.bead)));
+    const fwd = gap>=0, v = (RLINK.speed+RLINK.speedPer*gapN)/Math.max(len,.01);   // pulses: weaker → stronger
+    const nP = hot ? 1+Math.round((RLINK.pulses-1)*gapN) : 0;
+    for (let k=0;k<strands;k++){
+      const [ox,oy,ph] = strandSeed[k];
+      const wob = .25*Math.sin(t*.6+ph+pi);                                // strands breathe slowly inside the bundle
+      const cx = rC.x+(rSide.x*(ox+wob*oy)+rUp.x*oy)*width, cy = rC.y+(rSide.y*(ox+wob*oy)+rUp.y*oy)*width, cz = rC.z+(rSide.z*(ox+wob*oy)+rUp.z*oy)*width;
+      rTmp.set(cx,cy,cz);
+      for (let j=0;j<=n;j++){ const s = j/n; bez(s,rTmp,rP);
+        bp[nb*3] = rP.x; bp[nb*3+1] = rP.y; bp[nb*3+2] = rP.z;
+        const a = base*(.45+.55*Math.sin(Math.PI*s))*fadeAt(rP);
+        bc[nb*3] = (cA.r+(cB.r-cA.r)*s)*a; bc[nb*3+1] = (cA.g+(cB.g-cA.g)*s)*a; bc[nb*3+2] = (cA.b+(cB.b-cA.b)*s)*a; nb++; }
+      for (let j=0;j<nP;j++){ let u = (j/nP+k*.137+t*v)%1; if (!fwd) u = 1-u; bez(u,rTmp,rP);
+        fp[nf*3] = rP.x; fp[nf*3+1] = rP.y; fp[nf*3+2] = rP.z;
+        const a = Math.sin(Math.PI*u)*RLINK.pulseGlow*fadeAt(rP)/Math.sqrt(strands);
+        fc[nf*3] = Math.min(1,(cA.r+(cB.r-cA.r)*u)*a+.25*a); fc[nf*3+1] = Math.min(1,(cA.g+(cB.g-cA.g)*u)*a+.25*a); fc[nf*3+2] = Math.min(1,(cA.b+(cB.b-cA.b)*u)*a+.25*a); nf++; }
+    }
+    if (hot) for (const [N,c] of [[rA,cA],[rB,cB]]){ fp[nf*3] = N.x; fp[nf*3+1] = N.y; fp[nf*3+2] = N.z;   // where the bundle leaves the sphere
+      fc[nf*3] = c.r*.6; fc[nf*3+1] = c.g*.6; fc[nf*3+2] = c.b*.6; nf++; }
   });
   rBeads.geometry.setDrawRange(0,nb); rFlow.geometry.setDrawRange(0,nf);
   for (const g of [rBeads.geometry,rFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
+}
+function updateRoomRim(rc,t){                                                     // glass-marble glow only (no particles) · selected one a little brighter
+  const h = rc.halo, w = 2*Math.PI/HALO.period, beat = 1-HALO.breath+HALO.breath*(.5+.5*Math.sin(t*w+rc.phase));
+  h.rim.material.uniforms.uColor.value.copy(rc.z>=0?UP:DOWN).lerp(PINK,.2);
+  h.rim.material.uniforms.uStrength.value = HALO.rim*h.bright*beat*ROOM.haloRim*(rc.cur===state.currency?1.35:1);
 }
 let roomLast = null;
 function updateRoomOrbit(t){
@@ -1119,7 +1151,7 @@ function updateRoomOrbit(t){
     rc.spinV += (COIN.spin-rc.spinV)*Math.min(1,dt*1.2); rc.spinA += rc.spinV*dt;   // a flick spins it up, it calms back down
     rc.g.scale.setScalar(ROOM_K*e);
     rc.spin.rotation.y = rc.spinA+rc.phase;
-    updateHalo(rc,t,dt,rc.z>=0?UP:DOWN);
+    updateRoomRim(rc,t);
     const v = saved[rc.cur] || (saved[rc.cur] = [0,0,0]); v[0] = rc.r; v[1] = rc.a; v[2] = rc.dy;
   }
   updateRoomLinks(t);
