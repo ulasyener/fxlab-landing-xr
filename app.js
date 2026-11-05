@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '39';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '40';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -948,6 +948,7 @@ function updateLinks(t){
 const COIN = {dia:.04, spin:.6, env:.55, envBlur:.04, rough:1, metal:1};   // diameter m, spin rad/s, reflection strength, studio-reflection softness, roughness ×, metalness × (the shared aged-bronze texture carries the matte look)
 // One shared aged-bronze texture set (Substance: Bronz_Taban + Bronz_Kir + Bronz_Cila) for every coin; each coin keeps its own relief normal map.
 // Every coin has the same metal and surface, only the tone differs: the tone multiplies the shared base colour. Tones assigned at random (Ulaş, session 21).
+const coinHolders = {}; let maniCoinReady = null;                       // loaded coins, for the manifold's small coins (built later)
 const COIN_ROLL = {CHF:Math.PI};                                         // CHF relief is upside down in its export
 const COIN_TONE = {USD:'#DCC68E', EUR:'#D99A80', GBP:'#E6DFD3', JPY:'#A9BFA6', AUD:'#D6BC7E', NZD:'#D8A9A0', CAD:'#D9B48A', CHF:'#A88E72', BTC:'#9E9A94'};
 // USD brass · EUR red copper · GBP white bronze · JPY green patina · AUD aged gold · NZD rose bronze · CAD classic bronze · CHF dark bronze · BTC gunmetal
@@ -1203,6 +1204,7 @@ for (const m of marbles) {
       mt.envMap = coinEnv; mt.envMapIntensity = COIN.env;
       mt.roughness = COIN.rough; mt.metalness = COIN.metal; mt.color.set(COIN_TONE[m.cur]||'#ffffff'); mt.needsUpdate = true; } });
     roomAddCoin(m.cur,holder);                                // its copy for the room orbit, before the window clipping is set
+    coinHolders[m.cur] = holder; maniCoinReady?.(m.cur);      // and one for the manifold terrain
     m.spin.add(holder); m.coin = holder; m.sphere.visible = false; clipToWindow(holder);
   }, undefined, err => console.warn('coin', m.cur, err));
 }
@@ -1690,6 +1692,7 @@ function dragUpdate(s,o,d){
   if (s.drag.kind==='stick') { stickUpdate(s,o,d); return; }
   if (s.drag.kind==='maniSpin') { maniSpinUpdate(s,o,d); return; }
   if (s.drag.kind==='maniGrow') { maniGrowUpdate(s,o,d); return; }
+  if (s.drag.kind==='maniPopMove') { popMoveUpdate(s,o,d); return; }
   if (s.drag.kind==='gridResize') { gridResizeUpdate(s,o,d); return; }
   if (s.drag.kind==='gridExtrude') { extrudeUpdate(s,o,d); return; }
   if (s.drag.kind==='gridCell') { cellBrush(s.drag,cellUnder(o,d)); return; }
@@ -1793,7 +1796,7 @@ function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
   if (dr.kind==='roomCoin') { dr.src = s; roomRelease(dr); return; }
   if (dr.kind==='stick') { stickP.dirty = true; return; }
-  if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove' || dr.kind==='maniGrow') return;
+  if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove' || dr.kind==='maniGrow' || dr.kind==='maniPopMove') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
   if (dr.kind==='gridResize') { gridPlacedAt = 0; tablePlaneLock = true; return; }
   if (dr.kind==='gridExtrude' || dr.kind==='gridCell') return;   // a resized grid stays where the user left it
@@ -2001,7 +2004,7 @@ function maniLevelFor(R){ let L = 0; for (let k=1;k<MANI_LOD.length;k++) if (R>=
 // ---- currency trails: each currency's own path through all frames — where it stood (behaviour plane) and how strong it
 // was (height). Old end faint, newest end bright with a glowing head; a slow pulse runs along toward the present.
 // The selected currency's trail is bright, the others quiet. Colours: CUR_COL (still the placeholder palette).
-const MANI_TRAIL = {sub:4, ribbon:.0035, oldA:.06, newA:.75, dim:.2, pulses:5, speed:.12, head:.006, label:.05};
+const MANI_TRAIL = {sub:4, ribbon:.0035, coin:.018, oldA:.06, newA:.75, dim:.2, pulses:5, speed:.12, head:.006, label:.05};
 const maniTrails = [];
 const trailUni = {uTime:{value:0}};
 function buildManiTrails(){
@@ -2032,9 +2035,12 @@ function buildManiTrails(){
       transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false, clipping:true, side:THREE.DoubleSide});
     const ribbon = new THREE.Mesh(g,mat); ribbon.renderOrder = 3; maniTurn.add(ribbon);
     const end = pts[pts.length-1];
-    const head = new THREE.Mesh(new THREE.SphereGeometry(MANI_TRAIL.head,12,8),new THREE.MeshBasicMaterial({color:'#ffffff',toneMapped:false})); head.position.copy(end); maniTurn.add(head);
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:CUR_COL[cur]||'#ffffff',transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));
-    glow.scale.setScalar(MANI_TRAIL.head*6); glow.position.copy(end); maniTurn.add(glow);
+    // the currency itself: a small coin (same aged bronze as everywhere) inside its glowing glass-marble rim, turning slowly
+    const head = new THREE.Group(); head.position.copy(end); maniTurn.add(head);
+    const spin = new THREE.Group(); head.add(spin);
+    const fallback = new THREE.Mesh(new THREE.SphereGeometry(COIN.dia*.3,16,10),new THREE.MeshBasicMaterial({color:'#ffffff',toneMapped:false})); spin.add(fallback);
+    const rim = new THREE.Mesh(new THREE.SphereGeometry(HALO.rimR*.62,40,20),marbleRimMaterial()); head.add(rim);   // in coin units (COIN.dia), like the room coins' marble
+    const glow = rim;
     // label above the head (higher detail levels only): the code in Manrope, on a transparent canvas
     const cv = document.createElement('canvas'); cv.width = 128; cv.height = 48; const cx = cv.getContext('2d');
     cx.font = '800 30px Manrope'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillStyle = CUR_COL[cur]||'#ffffff'; cx.fillText(cur,64,25);
@@ -2042,16 +2048,70 @@ function buildManiTrails(){
     const label = new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,toneMapped:false}));
     label.scale.set(MANI_TRAIL.label,MANI_TRAIL.label*48/128,1); label.position.copy(end); label.position.y += MANI_TRAIL.head*3.2; label.visible = false; maniTurn.add(label);
     const hit = new THREE.Mesh(new THREE.SphereGeometry(MANI_TRAIL.head*2.5,10,8),new THREE.MeshBasicMaterial({visible:false})); hit.position.copy(end); maniTurn.add(hit);
-    const tr = {cur,mat,head,glow,label,end,ribbon,hit,sm,frames:F.map((f,i)=>f.points[cur]?i:-1).filter(i=>i>=0)};
+    const last = F[F.length-1].points[cur]?.[1] ?? 0;
+    const tr = {cur,mat,head,spin,fallback,rim,glow,label,end,ribbon,hit,sm,z:last,phase:CURRENCIES.indexOf(cur)*.8,frames:F.map((f,i)=>f.points[cur]?i:-1).filter(i=>i>=0)};
     ribbon.userData.kind = 'maniTrail'; ribbon.userData.trail = tr; hit.userData.kind = 'maniUnit'; hit.userData.trail = tr;
     maniTrails.push(tr);
   }
+  maniCoinReady = cur => { const tr = maniTrails.find(t=>t.cur===cur), h = coinHolders[cur]; if (!tr || !h || tr.coin) return;
+    const c = h.clone(true); c.traverse(o=>{ if (o.isMesh) { o.material = o.material.clone(); o.material.clippingPlanes = mani.parent===board && !maniOut() ? winPlanes : null; } });
+    tr.spin.add(c); tr.coin = c; tr.fallback.visible = false; };
+  for (const cur of Object.keys(coinHolders)) maniCoinReady(cur);
 }
 if (MANI_DATA) {
   // invisible grab volume around the terrain (pinch-ray / mouse drag turns it); its height follows the level
   const h0 = .2, grab = new THREE.Mesh(new THREE.CylinderGeometry(MANI.radius*1.05,MANI.radius*1.05,h0,32),new THREE.MeshBasicMaterial({visible:false}));
   grab.userData.kind = 'maniSpin'; grab.userData.h0 = h0; maniTurn.add(grab); mani.userData.grab = grab;
   buildManiTrails();
+}
+// ---- links between the currencies on the terrain: the same language as the room network — strands of tiny dots on
+// parabolic arches (cubic Bezier rising straight up out of one coin's glass rim and falling into the other's). Every pair is
+// there but faint; the selected currency's links are bright. Strength ← gap in latest strength (z): more strands, higher arch,
+// more and faster pulses running weaker → stronger. Colour flows from one currency's colour to the other's.
+const MLINK = {arch:.18, archPer:.2, strandsMax:5, fan:.55, bead:.0045, beadSize:.0026, beadsMax:150,
+               glow:.55, faint:.1, pulses:4, pulseSize:.008, speed:.1, speedPer:.35, pulseGlow:1};   // arch: height × distance (+ more for a wider gap)
+const maniPairs = []; for (let a=0;a<8;a++) for (let b=a+1;b<8;b++) maniPairs.push([a,b]);
+const mBeads = additivePoints(MLINK.beadSize,maniPairs.length*MLINK.strandsMax*(MLINK.beadsMax+1));
+const mFlow = additivePoints(MLINK.pulseSize,maniPairs.length*MLINK.strandsMax*MLINK.pulses);
+mBeads.material.map = crispTex; mBeads.renderOrder = mFlow.renderOrder = 4; mani.add(mBeads,mFlow);
+const mA = new THREE.Vector3(), mB = new THREE.Vector3(), mUp = new THREE.Vector3(), mSide = new THREE.Vector3(), mQ = new THREE.Quaternion(), mInv = new THREE.Matrix4();
+const M0 = new THREE.Vector3(), M1 = new THREE.Vector3(), M2 = new THREE.Vector3(), M3 = new THREE.Vector3(), MP = new THREE.Vector3();
+function updateManiLinks(t){
+  if (maniTrails.length<2) return;
+  mani.updateMatrixWorld(); mInv.copy(mani.matrixWorld).invert();
+  mUp.set(0,1,0).applyQuaternion(maniTurn.quaternion);                     // the terrain's own up (the window view is tilted)
+  const z = state.maniZoom||1, w = z<=1 ? 1 : Math.pow(z,MANI.markExp), ws = w*(maniOut() ? 1 : (boardRoot.scale.x||1));   // w: in mani's own units · ws: on screen (dot size)
+  const rimR = HALO.rimR*.62*MANI_TRAIL.coin/COIN.dia*w;                  // the glass rim's radius
+  mBeads.material.size = MLINK.beadSize*ws; mFlow.material.size = MLINK.pulseSize*ws;
+  const bp = mBeads.geometry.attributes.position.array, bc = mBeads.geometry.attributes.color.array;
+  const fp = mFlow.geometry.attributes.position.array, fc = mFlow.geometry.attributes.color.array;
+  let nb = 0, nf = 0; const bead = MLINK.bead*w;
+  for (const [ia,ib] of maniPairs) {
+    const A = maniTrails[ia], B = maniTrails[ib]; if (!A || !B) continue;
+    const hot = A.cur===state.currency || B.cur===state.currency;
+    A.head.getWorldPosition(mA).applyMatrix4(mInv); B.head.getWorldPosition(mB).applyMatrix4(mInv);
+    const dist = mA.distanceTo(mB), gap = B.z-A.z, gapN = Math.min(1,Math.abs(gap)/2);
+    const strands = hot ? 1+Math.round((MLINK.strandsMax-1)*gapN) : 1, base = (hot ? MLINK.glow : MLINK.faint)/Math.sqrt(strands);
+    const h = dist*(MLINK.arch+MLINK.archPer*gapN);
+    mSide.subVectors(mB,mA).cross(mUp); if (mSide.lengthSq()<1e-10) mSide.set(1,0,0); mSide.normalize();
+    const cA = curCol[A.cur], cB = curCol[B.cur], n = Math.min(MLINK.beadsMax,Math.max(12,Math.floor((dist+2*h)/bead)));
+    const v = (MLINK.speed+MLINK.speedPer*gapN)/Math.max(dist+h,.01), fwd = gap>=0, nP = hot ? 1+Math.round((MLINK.pulses-1)*gapN) : 0;
+    for (let k=0;k<strands;k++) {
+      const o = strands>1 ? k/(strands-1)*2-1 : 0, wob = .15*Math.sin(t*.5+k*1.3+ia*2+ib);
+      M0.copy(mA).addScaledVector(mUp,rimR).addScaledVector(mSide,o*rimR*.5);
+      M3.copy(mB).addScaledVector(mUp,rimR).addScaledVector(mSide,o*rimR*.5);
+      M1.copy(M0).addScaledVector(mUp,h).addScaledVector(mSide,(o+wob)*rimR*MLINK.fan*2);
+      M2.copy(M3).addScaledVector(mUp,h).addScaledVector(mSide,(o-wob)*rimR*MLINK.fan*2);
+      for (let j=0;j<=n;j++) { const s = j/n; cub(s,M0,M1,M2,M3,MP);
+        bp[nb*3] = MP.x; bp[nb*3+1] = MP.y; bp[nb*3+2] = MP.z; const a = base*(.6+.4*Math.sin(Math.PI*s));
+        bc[nb*3] = (cA.r+(cB.r-cA.r)*s)*a; bc[nb*3+1] = (cA.g+(cB.g-cA.g)*s)*a; bc[nb*3+2] = (cA.b+(cB.b-cA.b)*s)*a; nb++; }
+      for (let j=0;j<nP;j++) { let u = (j/nP+k*.137+t*v)%1; if (!fwd) u = 1-u; cub(u,M0,M1,M2,M3,MP);
+        fp[nf*3] = MP.x; fp[nf*3+1] = MP.y; fp[nf*3+2] = MP.z; const a = Math.sin(Math.PI*u)*MLINK.pulseGlow/Math.sqrt(strands);
+        fc[nf*3] = Math.min(1,(cA.r+(cB.r-cA.r)*u)*a+.25*a); fc[nf*3+1] = Math.min(1,(cA.g+(cB.g-cA.g)*u)*a+.25*a); fc[nf*3+2] = Math.min(1,(cA.b+(cB.b-cA.b)*u)*a+.25*a); nf++; }
+    }
+  }
+  mBeads.geometry.setDrawRange(0,nb); mFlow.geometry.setDrawRange(0,nf);
+  for (const g of [mBeads.geometry,mFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
 }
 const setManiClip = on => mani.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = on ? winPlanes : null; m.needsUpdate = true; } });
 setManiClip(true);                                                        // in the window it stays inside the box
@@ -2093,8 +2153,9 @@ function scaleManiMarkers(z,zy){
     q.head.position.set(q.base.x,q.base.y+dy,q.base.z); q.glow.position.copy(q.head.position); q.hit.position.copy(q.head.position);
     q.head.scale.copy(_sv); q.glow.scale.set(MANI.pinHead*5*m/z,MANI.pinHead*5*m/zy,1); q.hit.scale.copy(_sv); q.foot.scale.copy(_sv);
     const pa = q.stem.geometry.attributes.position; pa.setXYZ(1,q.head.position.x,q.head.position.y,q.head.position.z); pa.needsUpdate = true; }
-  for (const t of maniTrails) { t.head.scale.copy(_sv); t.hit.scale.copy(_sv); t.glow.scale.set(MANI_TRAIL.head*6*m/z,MANI_TRAIL.head*6*m/zy,1);
-    t.label.scale.set(MANI_TRAIL.label*m/z,MANI_TRAIL.label*48/128*m/zy,1); t.label.position.set(t.end.x,t.end.y+MANI_TRAIL.head*3.2*m/zy,t.end.z); }
+  const k = MANI_TRAIL.coin/COIN.dia;
+  for (const t of maniTrails) { t.head.scale.set(_sv.x*k,_sv.y*k,_sv.z*k); t.hit.scale.copy(_sv);
+    t.label.scale.set(MANI_TRAIL.label*m/z,MANI_TRAIL.label*48/128*m/zy,1); t.label.position.set(t.end.x,t.end.y+MANI_TRAIL.coin*.95*m/zy,t.end.z); }
 }
 const maniOut = () => state.maniOnTable || state.maniRoom;                // out of the window: on the table or around the user
 const maniZoomMax = () => state.maniRoom ? MANI.zoomRoom : state.maniOnTable ? MANI.zoomTable : MANI.zoom[1];
@@ -2187,7 +2248,7 @@ function maniScaleUpdate(s){
 // info pop-up. Peaks / pits (pins), a currency (its glowing head on the terrain) or any point of its ribbon can be touched:
 // a thin line rises from the touched spot and the window opens at its top. In the window it sits on the glass beside the spot.
 let maniOpen = null, maniOpenAt = 0;
-const MANI_POP = {w:260, h:176, rise:.07, riseRoom:.32, lineT:.22, openT:.14};   // rise: line length above the spot (m) · grow / open times (s)
+const MANI_POP = {w:260, h:176, rise:.07, riseRoom:.32, lineT:.22, openT:.14, fill:.55, side:.45, seg:48, bar:84, barGap:14};   // fill: panel opacity · side: default offset sideways (× rise) so the line curves · bar: grab bar under the window (dp)   // rise: line length above the spot (m) · grow / open times (s)
 const fmtFrame = i => { const d = new Date(MANI_DATA.frames[i].end), M = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   return `${String(d.getUTCDate()).padStart(2,'0')} ${M[d.getUTCMonth()]} ${String(d.getUTCHours()).padStart(2,'0')}:00`; };
 const zs = v => `${v>=0?'+':'−'}${Math.abs(v).toFixed(2)} z`;
@@ -2204,8 +2265,8 @@ function maniTouch(hit){
 }
 const maniPopP = panel({name:'manifold info',x:0,y:0,w:MANI_POP.w,h:MANI_POP.h,margin:16,z:.02,draw(ctx,p){
   const o = maniOpen; if (!o) return; const W = MANI_POP.w, H = MANI_POP.h;
-  ctx.save(); ctx.shadowColor = C.pink; ctx.shadowBlur = 14; rr(ctx,0,0,W,H,18); ctx.fillStyle = 'rgba(30,27,58,.94)'; ctx.fill(); ctx.restore();
-  rr(ctx,0,0,W,H,18); ctx.lineWidth = 1.5; ctx.strokeStyle = C.pink; ctx.stroke();
+  ctx.save(); ctx.shadowColor = C.pink; ctx.shadowBlur = 10; rr(ctx,0,0,W,H,18); ctx.fillStyle = `rgba(30,27,58,${MANI_POP.fill})`; ctx.fill(); ctx.restore();
+  rr(ctx,0,0,W,H,18); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(231,168,240,.75)'; ctx.stroke();
   const hot = p.hover==='close'; drawIcon(ctx,'x-circle',hot?C.pink:C.muted,W-24,24,20);
   p.region('close',W-48,0,48,48,()=>maniInfo(null));
   if (o.kind==='peak' || o.kind==='pit') {
@@ -2235,12 +2296,23 @@ const maniPopP = panel({name:'manifold info',x:0,y:0,w:MANI_POP.w,h:MANI_POP.h,m
 }});
 maniPopP.mesh.visible = false;
 // the rising line, and a small ring where it starts
-const leadLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]),
+const leadLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({length:MANI_POP.seg+1},()=>new THREE.Vector3())),
   new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.85,depthWrite:false,toneMapped:false}));
 leadLine.frustumCulled = false; leadLine.visible = false; leadLine.renderOrder = 5; scene.add(leadLine);
 const leadDot = new THREE.Mesh(new THREE.RingGeometry(.004,.0065,24).rotateX(-Math.PI/2),
   new THREE.MeshBasicMaterial({color:C.pink,transparent:true,opacity:.9,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
 leadDot.visible = false; leadDot.renderOrder = 5; scene.add(leadDot);
+// grab bar under the window (out in the room): pinch it and put the window anywhere — the line stretches after it
+const popBar = new THREE.Group(); popBar.position.y = -(MANI_POP.h/2+MANI_POP.barGap)*S; maniPopP.mesh.add(popBar);
+{ const w = MANI_POP.bar*S, h = 7*S, r = h/2, sh = new THREE.Shape();
+  sh.moveTo(-w/2+r,-h/2); sh.lineTo(w/2-r,-h/2); sh.absarc(w/2-r,0,r,-Math.PI/2,Math.PI/2); sh.lineTo(-w/2+r,h/2); sh.absarc(-w/2+r,0,r,Math.PI/2,Math.PI*1.5);
+  const bar = new THREE.Mesh(new THREE.ShapeGeometry(sh,12),new THREE.MeshBasicMaterial({color:'#efe6ff',transparent:true,opacity:.55,depthWrite:false,toneMapped:false}));
+  popBar.add(bar); popBar.userData.bar = bar;
+  const hit = new THREE.Mesh(new THREE.PlaneGeometry(w*1.6,h*6),new THREE.MeshBasicMaterial({visible:false})); hit.userData.kind = 'maniPopMove'; popBar.add(hit); popBar.userData.hit = hit; }
+const _pm = new THREE.Vector3();
+function popMoveStart(s,hit){ maniPopP.mesh.getWorldPosition(_pm); s.drag = {kind:'maniPopMove',dist:hit.distance,off:_pm.sub(hit.point).clone()}; }
+function popMoveUpdate(s,o,d){ if (!maniOpen) { s.drag = null; return; }
+  maniOpen.pos = (maniOpen.pos || new THREE.Vector3()).copy(o).addScaledVector(d,s.drag.dist).add(s.drag.off); }
 function maniInfo(o){
   maniOpen = (maniOpen && o && (maniOpen===o || (maniOpen.key && maniOpen.key===o.key))) ? null : o;
   maniOpenAt = performance.now(); maniPopP.mesh.visible = false; maniPopP.dirty = true;
@@ -2249,7 +2321,8 @@ function maniInfo(o){
   scaleManiMarkers(state.maniZoom||1,maniZY(state.maniZoom||1));
   for (const q of maniPins) { const on = q===maniOpen; if (on) q.head.scale.multiplyScalar(1.5); q.glow.material.opacity = on?1:.7; }
 }
-const popW = new THREE.Vector3(), popA = new THREE.Vector3(), popT = new THREE.Vector3(), popC = new THREE.Vector3();
+const popW = new THREE.Vector3(), popA = new THREE.Vector3(), popT = new THREE.Vector3(), popC = new THREE.Vector3(), popS = new THREE.Vector3();
+const L0 = new THREE.Vector3(), L1 = new THREE.Vector3(), L2 = new THREE.Vector3(), L3 = new THREE.Vector3(), LP = new THREE.Vector3();
 const anchorOf = (o,out) => o.head ? o.head.getWorldPosition(out) : maniTurn.localToWorld(out.copy(o.local));
 function updateManifold(t,visible){
   mani.visible = visible;
@@ -2257,24 +2330,36 @@ function updateManifold(t,visible){
   if (MANI_DATA) { const L = maniLevelFor(maniWorldR()); if (L!==maniLevel) setManiLevel(L); }
   trailUni.uTime.value = t;
   for (const tr of maniTrails) { const on = tr.cur===state.currency ? 1 : 0; tr.mat.uniforms.uSel.value += (on-tr.mat.uniforms.uSel.value)*.15;
-    tr.glow.material.opacity = (on ? .9 : .4)+.15*Math.sin(t*2.4+tr.head.position.x*40); }
+    tr.spin.rotation.y = t*COIN.spin+tr.phase;                                 // the coin turns like the others
+    const beat = 1-HALO.breath+HALO.breath*(.5+.5*Math.sin(t*2*Math.PI/HALO.period+tr.phase)), u = tr.rim.material.uniforms;   // glass rim breathes, up / down tint
+    u.uColor.value.copy(tr.z>=0?UP:DOWN).lerp(PINK,.2).lerp(WHITE,ROOM.haloLight); u.uStrength.value = HALO.rim*beat*ROOM.haloRim*(on?1.35:.85); }
+  updateManiLinks(t);
   if (growNodes.visible) for (const n of growList) n.glow.material.opacity = .5+.3*Math.sin(t*2.2+n.a);
   for (const q of maniPins) if (q!==maniOpen) q.glow.material.opacity = .55+.25*Math.sin(t*2+q.x);
   if (maniOpen) {
     const el = (performance.now()-maniOpenAt)/1000, grow = Math.min(1,el/MANI_POP.lineT), ease = 1-(1-grow)**3;
     anchorOf(maniOpen,popA); leadDot.position.copy(popA); leadDot.position.y += .001;
-    if (maniOut()) {                                                          // in the room: straight up from the spot, turned to the viewer
-      popT.copy(popA); popT.y += state.maniRoom ? MANI_POP.riseRoom : MANI_POP.rise;
-      maniPopP.mesh.position.copy(popT); maniPopP.mesh.position.y += MANI_POP.h/2*S;
-      (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(popC); popC.y = maniPopP.mesh.position.y; maniPopP.mesh.lookAt(popC);
+    popBar.visible = maniOut();
+    if (maniOut()) {                                                          // in the room: up and a little aside from the spot (or where the user put it), turned to the viewer
+      const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera; cam.getWorldPosition(popC);
+      if (maniOpen.pos) maniPopP.mesh.position.copy(maniOpen.pos);
+      else { const rise = state.maniRoom ? MANI_POP.riseRoom : MANI_POP.rise;
+        popS.set(popC.z-popA.z,0,popA.x-popC.x); if (popS.lengthSq()<1e-6) popS.set(1,0,0); popS.normalize().multiplyScalar(-rise*MANI_POP.side);   // to the viewer's right
+        maniPopP.mesh.position.copy(popA).add(popS); maniPopP.mesh.position.y += rise+(MANI_POP.h/2+MANI_POP.barGap)*S; }
+      popC.y = maniPopP.mesh.position.y; maniPopP.mesh.lookAt(popC);
+      popBar.getWorldPosition(popT);                                          // the line arrives at the grab bar
     } else {                                                                  // in the window: beside the spot on the glass, the line runs to its corner
       popW.copy(popA); board.worldToLocal(popW);
       const half = MANI_POP.w/2*S, side = popW.x>(WIN.x+WIN.w/2-BW/2)*S ? -1 : 1;
       maniPopP.mesh.position.set(popW.x+side*(half+.012),popW.y+MANI_POP.h/2*S+.012,.02);
       popT.set(popW.x+side*.012,popW.y+.012,.02); board.localToWorld(popT);
     }
-    const pa = leadLine.geometry.attributes.position; pa.setXYZ(0,popA.x,popA.y,popA.z);
-    pa.setXYZ(1,popA.x+(popT.x-popA.x)*ease,popA.y+(popT.y-popA.y)*ease,popA.z+(popT.z-popA.z)*ease); pa.needsUpdate = true;
+    // a soft curve: leaves the spot straight up, arrives at the window straight from below (cubic Bezier), stretches as it moves
+    const dy = Math.abs(popT.y-popA.y), dh = Math.hypot(popT.x-popA.x,popT.z-popA.z);
+    L0.copy(popA); L3.copy(popT); L1.copy(L0); L1.y += .55*dy+.35*dh; L2.copy(L3); L2.y -= .35*dy+.25*dh;
+    const pa = leadLine.geometry.attributes.position, N = MANI_POP.seg;
+    for (let j=0;j<=N;j++) { cub(j/N,L0,L1,L2,L3,LP); pa.setXYZ(j,LP.x,LP.y,LP.z); }
+    pa.needsUpdate = true; leadLine.geometry.setDrawRange(0,Math.max(2,Math.ceil(ease*N)+1));
     const op = Math.max(0,Math.min(1,(el-MANI_POP.lineT)/MANI_POP.openT));   // the window opens once the line has arrived
     maniPopP.mesh.visible = op>0; maniPopP.mesh.scale.setScalar(.75+.25*(1-(1-op)**3));
   }
@@ -2319,7 +2404,8 @@ function targets(){ const list = []; for (const p of panels) if (p.mesh.visible 
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit);
   if (orbitRoot.visible && state.roomOn) for (const rc of roomCoins) if (!rc.held) list.push(rc.hit);
   if (mani.visible && (board.visible || maniOut()) && mani.userData.grab) { if (!state.maniRoom) list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit);
-    for (const tr of maniTrails) list.push(tr.hit,tr.ribbon); if (state.maniOnTable) { list.push(...maniPads); for (const n of growList) list.push(n.hit); } }
+    for (const tr of maniTrails) list.push(tr.hit,tr.ribbon);
+    if (maniPopP.mesh.visible && popBar.visible) list.push(popBar.userData.hit); if (state.maniOnTable) { list.push(...maniPads); for (const n of growList) list.push(n.hit); } }
   return list; }
 // far grabbing: a thin ray easily slips past a small node or a coin a few metres away. When the ray finds nothing it can use
 // (empty space, a bare panel surface, the grid floor), the nearest grabbable thing within a few degrees of it is taken instead.
@@ -2380,7 +2466,8 @@ function press(source,hit){
   if (hit.currency) { setCurrency(hit.currency); return; }
   if (hit.kind==='maniPin') { maniInfo(hit.object.userData.pin); return; }
   if (hit.kind==='maniUnit' || hit.kind==='maniTrail') { maniTouch(hit); return; }
-  if (hit.kind==='maniGrow') { maniGrowStart(s,hit); return; }
+  if (hit.kind==='maniGrow') { maniGrowStart(source,hit); return; }
+  if (hit.kind==='maniPopMove') { popMoveStart(source,hit); return; }
   if (hit.kind==='maniSpin') { maniSpinStart(source,hit.point); return; }
   if (hit.kind==='maniMove') { source.drag = {kind:'maniMove'}; return; }
   if (hit.kind) { dragStart(source,hit); return; }
