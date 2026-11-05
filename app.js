@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '29';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '30';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -709,12 +709,12 @@ function marbleRimMaterial(){
     transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, clipping:true, toneMapped:false,
   });
 }
-function makeHalo(cur){
+function makeHalo(cur,density=1){
   const cot = cotOf(cur), shells = [];
   let total = 0;
   COT_GROUPS.forEach((id,k)=>{
     const g = cot?.groups[k], share = g ? Math.min(1,Math.abs(g.pctOi)/50) : .15;
-    const n = Math.round(HALO.min+(HALO.max-HALO.min)*share);
+    const n = Math.round((HALO.min+(HALO.max-HALO.min)*share)*density);
     shells.push({id, n, start:total, dir: g ? Math.sign(g.net)||1 : 1,
       speed: g ? .35+1.6*Math.min(1,Math.abs(g.change)/.04) : .35, r:HALO.r[k]}); total += n;
   });
@@ -797,7 +797,8 @@ function updateHalo(m,t,dt,col){
   const beat = ph => 1-HALO.breath+HALO.breath*(.5+.5*Math.sin(t*w+ph));        // slow breathing instead of sparkle
   h.pts.rotation.y = t*HALO.swirl+m.phase; h.pts.rotation.z = Math.sin(t*.2+m.phase)*.15;
   h.rim.material.uniforms.uColor.value.copy(col).lerp(PINK,.2);
-  h.rim.material.uniforms.uStrength.value = HALO.rim*h.bright*sel*beat(m.phase);
+  const gk = m.glowK ?? 1, rk = m.rimK ?? 1;                                   // room coins: quieter halo so the coin reads
+  h.rim.material.uniforms.uStrength.value = HALO.rim*h.bright*sel*beat(m.phase)*rk;
   h.shells.forEach((s,k)=>{
     // three readable shells: inner (commercial) near white · middle (speculators) pink · outer (small traders) up/down tint
     tmpCol.copy(col); if (k===0) tmpCol.lerp(WHITE,.6); else if (k===1) tmpCol.lerp(PINK,.6).lerp(WHITE,.1);
@@ -809,7 +810,7 @@ function updateHalo(m,t,dt,col){
       const u = h.phase[i], rr = R+spread*(s.dir>0 ? u : 1-u)-spread*.5;   // long: drift outward · short: drift inward
       const wob = 1+.015*Math.sin(t*.9+i*.37);
       pos[i*3] = h.dirs[i*3]*rr*wob; pos[i*3+1] = h.dirs[i*3+1]*rr*wob; pos[i*3+2] = h.dirs[i*3+2]*rr*wob;
-      const a = (.3+.7*Math.sin(Math.PI*u))*br*HALO.glow*h.bright*sel;   // fade in and out along the drift
+      const a = (.3+.7*Math.sin(Math.PI*u))*br*HALO.glow*h.bright*sel*gk;   // fade in and out along the drift
       cl[i*3] = tmpCol.r*a; cl[i*3+1] = tmpCol.g*a; cl[i*3+2] = tmpCol.b*a;
     }
   });
@@ -921,7 +922,10 @@ const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   
 // grab a coin (pinch near it, or pinch-ray and push / pull the hand) and let it go nearer or farther — it keeps orbiting there
 // orbit speed ← strength (latest observation of the chosen horizon): stronger = faster, weaker = slower, all slow · pause stops every orbit
 const ROOM = {coin:.08, r0:.7, lane:.12, rMin:.35, rMax:3.2, dy:-.15, dyMin:-1.2, dyMax:.8, w:.05, zSpan:2.2, ease:.6,
-              bob:.008, follow:2.5, grabNear:.09, push:4, appear:.8};   // coin Ø m · default lanes · speed: w rad/s at zero, ×2 per +zSpan, ÷2 per −zSpan
+              bob:.008, follow:2.5, grabNear:.09, push:4, appear:.8,
+              haloDensity:.45, haloGlow:.35, haloRim:.3, haloSize:.75,           // quieter halo in the room, so the coin itself reads
+              coinEnv:.07, coinMetal:.55, coinTint:.8,                          // matter, darker coin copies (less shine)
+              snap:12, throwMin:.55, throwGain:1.8, throwMax:4, drag:1.6, dragY:5, settle:.12, spinBoost:6};   // grab glides into the fingers · flick: release speed m/s → flight, slows down, takes the orbit where it stops   // coin Ø m · default lanes · speed: w rad/s at zero, ×2 per +zSpan, ÷2 per −zSpan
 const orbitRoot = new THREE.Group(); orbitRoot.name = 'room orbit'; orbitRoot.visible = false; scene.add(orbitRoot);
 const orbitCentre = new THREE.Vector3(); let orbitSnap = true;
 const ROOM_K = ROOM.coin/COIN.dia;                                           // coin + halo scale against the diorama's
@@ -930,15 +934,17 @@ const roomCoins = CURRENCIES.map((cur,i)=>{
   const fallback = new THREE.Mesh(new THREE.SphereGeometry(.02,32,16),new THREE.MeshStandardMaterial({color:'#eef3ff',emissive:'#5d86ff',emissiveIntensity:.6,roughness:.2,metalness:.1}));
   g.add(fallback);
   const spin = new THREE.Group(); g.add(spin);
-  const halo = makeHalo(cur); halo.pts.material.size = HALO.size*ROOM_K/WIN.fill; g.add(halo.pts); g.add(halo.rim);
+  const halo = makeHalo(cur,ROOM.haloDensity); halo.pts.material.size = HALO.size*ROOM_K/WIN.fill*ROOM.haloSize; g.add(halo.pts); g.add(halo.rim);
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false})); g.add(hit);
-  const rc = {cur,i,g,fallback,spin,halo,hit,phase:i*.7,r:ROOM.r0+i*ROOM.lane,a:0,dy:ROOM.dy,w:ROOM.w,held:false,z:0};
+  const rc = {cur,i,g,fallback,spin,halo,hit,phase:i*.7,r:ROOM.r0+i*ROOM.lane,a:0,dy:ROOM.dy,w:ROOM.w,held:false,z:0,
+              glowK:ROOM.haloGlow, rimK:ROOM.haloRim, fly:null, spinA:0, spinV:COIN.spin};
   hit.userData.roomCoin = rc; return rc;
 });
 function roomAddCoin(cur,holder){                                            // a copy of the window's coin, with its own (unclipped) materials
   const rc = roomCoins.find(c=>c.cur===cur); if (!rc) return;
   const copy = holder.clone(true);
-  copy.traverse(o=>{ if (o.isMesh) { o.material = o.material.clone(); o.material.clippingPlanes = null; } });
+  copy.traverse(o=>{ if (o.isMesh) { const mt = o.material = o.material.clone(); mt.clippingPlanes = null;
+    mt.envMapIntensity = ROOM.coinEnv; mt.metalness *= ROOM.coinMetal; mt.color.multiplyScalar(ROOM.coinTint); } });
   rc.spin.add(copy); rc.fallback.visible = false;
 }
 const roomHead = new THREE.Vector3(), roomFwd = new THREE.Vector3(), roomQ = new THREE.Quaternion();
@@ -977,18 +983,20 @@ function roomHandGrab(s){                                                    // 
   pinchW(s,roomV); let best = null, bd = ROOM.grabNear;
   for (const rc of roomCoins) { const d = rc.g.position.distanceTo(roomV); if (d<bd && !rc.held) { bd = d; best = rc; } }
   if (!best) return false;
-  best.held = true; s.drag = {kind:'roomCoin',rc:best,mode:'hand',off:best.g.position.clone().sub(roomV)}; return true;
+  best.held = true; best.fly = null; s.drag = {kind:'roomCoin',rc:best,mode:'hand',off:best.g.position.clone().sub(roomV),hist:[]}; return true;
 }
 function rayHeadDist(s){ roomO.setFromMatrixPosition(s.controller.matrixWorld); return Math.hypot(roomO.x-roomHead.x,roomO.z-roomHead.z); }
 function roomRayGrab(s,hit){                                                 // pinch-ray: push the hand away to send it farther, pull it in to bring it closer
   const rc = hit.roomCoin; if (rc.held) return;
-  rc.held = true; headPose();
-  s.drag = {kind:'roomCoin',rc,mode:'ray',dist:hit.distance,d0:s.controller ? rayHeadDist(s) : 0, dist0:hit.distance};
+  rc.held = true; rc.fly = null; headPose();
+  s.drag = {kind:'roomCoin',rc,mode:'ray',dist:hit.distance,d0:s.controller ? rayHeadDist(s) : 0, dist0:hit.distance, hist:[]};
 }
 function roomDragUpdate(s){
   const dr = s.drag, rc = dr.rc;
   if (dr.mode==='hand') {
     const j = s.hand.joints; if (!j['index-finger-tip']?.visible || !j['thumb-tip']?.visible) { dragEnd(s); return; }
+    const now = performance.now()/1000, dt = Math.min(.1,now-(dr.last ?? now)); dr.last = now;
+    dr.off.multiplyScalar(Math.exp(-ROOM.snap*dt));                       // the coin glides into the fingers
     rc.g.position.copy(pinchW(s,roomV)).add(dr.off);
   } else if (s.controller) {
     if (!s.controller.visible) { dragEnd(s); return; }
@@ -996,14 +1004,24 @@ function roomDragUpdate(s){
     dr.dist = Math.max(.15,Math.min(ROOM.rMax+.5,dr.dist0+(rayHeadDist(s)-dr.d0)*ROOM.push));
     rc.g.position.copy(roomO).addScaledVector(roomD,dr.dist);
   } else if (s.ray) rc.g.position.copy(s.ray.o).addScaledVector(s.ray.d,dr.dist);   // desktop: drag, wheel = nearer / farther
+  const tNow = performance.now()/1000; dr.hist.push([tNow,rc.g.position.x,rc.g.position.y,rc.g.position.z]);
+  while (dr.hist.length>2 && tNow-dr.hist[0][0]>.1) dr.hist.shift();     // last 0.1 s → release velocity
   const x = rc.g.position.x-orbitCentre.x, z = rc.g.position.z-orbitCentre.z, r = Math.max(ROOM.rMin,Math.min(ROOM.rMax,Math.hypot(x,z)));
   heldRing.visible = true; heldRing.position.set(orbitCentre.x,rc.g.position.y,orbitCentre.z); heldRing.scale.setScalar(r);
+}
+function roomRelease(dr){                                                  // a flick sends the coin flying; a calm release just leaves it there
+  const rc = dr.rc, h = dr.hist || [];
+  if (h.length>1) { const a = h[0], b = h[h.length-1], dt = b[0]-a[0];
+    if (dt>.01) { const v = new THREE.Vector3(b[1]-a[1],b[2]-a[2],b[3]-a[3]).divideScalar(dt);
+      if (v.length()>ROOM.throwMin) { v.multiplyScalar(ROOM.throwGain); if (v.length()>ROOM.throwMax) v.setLength(ROOM.throwMax);
+        rc.fly = v; rc.held = false; rc.spinV = COIN.spin*ROOM.spinBoost; return; } } }
+  roomDrop(rc);
 }
 function roomDrop(rc){
   const x = rc.g.position.x-orbitCentre.x, z = rc.g.position.z-orbitCentre.z;
   rc.r = Math.max(ROOM.rMin,Math.min(ROOM.rMax,Math.hypot(x,z))); rc.a = Math.atan2(x,-z);
   rc.dy = Math.max(ROOM.dyMin,Math.min(ROOM.dyMax,rc.g.position.y-orbitCentre.y));
-  rc.held = false; heldRing.visible = roomCoins.some(c=>c.held);
+  rc.held = false; rc.fly = null; heldRing.visible = roomCoins.some(c=>c.held||c.fly);
   toast(`${rc.cur} · ${Math.round(rc.r*100)} cm from you`,1600);
 }
 addEventListener('wheel',e=>{ if (mouse.drag?.kind==='roomCoin' && mouse.drag.mode==='ray') { mouse.drag.dist = Math.max(.15,Math.min(ROOM.rMax+.5,mouse.drag.dist-e.deltaY*.002)); e.preventDefault(); } },{passive:false});
@@ -1022,9 +1040,16 @@ function updateRoomOrbit(t){
     rc.z = zAt(last,rc.cur);
     const target = ROOM.w*Math.pow(2,rc.z/ROOM.zSpan);                      // stronger → faster, weaker → slower
     rc.w += (target-rc.w)*Math.min(1,dt/ROOM.ease);
-    if (!rc.held) { if (!state.roomPaused) rc.a += rc.w*dt; roomPos(rc,t,rc.g.position); }
+    if (rc.fly) {                                                          // thrown: glides, slows down, takes the orbit where it stops
+      const v = rc.fly, p = rc.g.position; p.addScaledVector(v,dt);
+      v.x *= Math.exp(-ROOM.drag*dt); v.z *= Math.exp(-ROOM.drag*dt); v.y *= Math.exp(-ROOM.dragY*dt);
+      const x = p.x-orbitCentre.x, z = p.z-orbitCentre.z, r = Math.hypot(x,z);
+      heldRing.visible = true; heldRing.position.set(orbitCentre.x,p.y,orbitCentre.z); heldRing.scale.setScalar(Math.max(ROOM.rMin,Math.min(ROOM.rMax,r)));
+      if (v.length()<ROOM.settle || r>=ROOM.rMax || r<=ROOM.rMin) roomDrop(rc);
+    } else if (!rc.held) { if (!state.roomPaused) rc.a += rc.w*dt; roomPos(rc,t,rc.g.position); }
+    rc.spinV += (COIN.spin-rc.spinV)*Math.min(1,dt*1.2); rc.spinA += rc.spinV*dt;   // a flick spins it up, it calms back down
     rc.g.scale.setScalar(ROOM_K*e);
-    rc.spin.rotation.y = t*COIN.spin+rc.phase;
+    rc.spin.rotation.y = rc.spinA+rc.phase;
     updateHalo(rc,t,dt,rc.z>=0?UP:DOWN);
     const v = saved[rc.cur] || (saved[rc.cur] = [0,0,0]); v[0] = rc.r; v[1] = rc.a; v[2] = rc.dy;
   }
@@ -1435,7 +1460,7 @@ function gridGrabEnd(s){
 let tablePlaneLock = false;
 function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
-  if (dr.kind==='roomCoin') { roomDrop(dr.rc); return; }
+  if (dr.kind==='roomCoin') { roomRelease(dr); return; }
   if (dr.kind==='stick') { stickP.dirty = true; return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
