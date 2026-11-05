@@ -9,6 +9,7 @@ It does not change or depend on the fxlab code; it only reads snapshots of fxlab
 - Interaction: touch buttons with your index finger, or pinch with the ray. Pinch an empty surface to grab and move the landing.
 - Data: `data/5h.json`, `data/1d.json`, `data/1w.json` from `snapshot.ps1`. Without them the page uses `data/fixture.json` (an old held sample from Barış's repo tests).
 - NEWS and SIMULATOR show the sample content from Figma; they have no data source yet.
+- Room orbit (planet button on the bottom bar): the coins circle you like a solar system, no water. Orbit speed follows strength (stronger = faster); grab a coin and let it go nearer or farther to set its orbit. The button above it pauses / plays the orbits. Settings sit in `ROOM` in `app.js`.
 - Diorama currencies are 3D coins (`assets/coins/<CODE>.glb`, Substance export packed with KTX2 + meshopt). Size, spin speed and reflection strength sit in `COIN` in `app.js`.
 
 Fonts: Manrope, Kode Mono (SIL OFL, via Fontsource). Icons: Phosphor (MIT). three.js r170 (MIT), incl. GLTFLoader, KTX2Loader + Basis transcoder, meshopt decoder, RoomEnvironment, XRHandModelFactory. Hand meshes: WebXR Input Profiles generic-hand (MIT).

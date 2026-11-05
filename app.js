@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '28';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '29';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -44,6 +44,7 @@ const state = {
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
   winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
+  roomOn: false, roomPaused: false, roomCoins: null,   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
@@ -374,11 +375,12 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
-  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; applyManiPose(); place(); placeGrid(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); toast('Back to the default layout'); }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
+  ['room','planet','Coins around you',()=>setRoom(!state.roomOn)],
   ['stick','joystick','Move the landing',()=>{ state.stick = !state.stick; stickP.mesh.visible = turnP.mesh.visible = state.stick; toast(state.stick?(state.stickTurn?STICK_TIP.turn:STICK_TIP.move):'Joystick hidden'); }],
   ['exit','x-circle','Exit MR',()=>{ const s = renderer.xr.getSession(); s ? s.end() : toast('Not in MR'); }],
 ];
@@ -387,9 +389,16 @@ const barP = panel({name:'bottom bar',x:410,y:860,w:700,h:104.6,margin:20,parent
   rr(ctx,0,0,700,104.6,52.3); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
   rr(ctx,0,0,700,104.6,52.3); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
   const step = (700-2*23.85-68.47)/(BAR.length-1);                     // equal spacing (A), whatever the number of buttons
-  BAR.forEach(([id,ic,,fn],i)=>circleButton(ctx,p,id,23.85+34.24+i*step,18.08+34.24,68.47,id==='stick'&&state.stick?'joystick-fill':ic,fn,
-    {iconSize:28.8,iconColor:id==='stick'&&state.stick?C.pink:C.ink}));
+  BAR.forEach(([id,ic,,fn],i)=>{ const on = (id==='stick'&&state.stick) || (id==='room'&&state.roomOn);
+    circleButton(ctx,p,id,23.85+34.24+i*step,18.08+34.24,68.47,on?ic+'-fill':ic,fn,{iconSize:28.8,iconColor:on?C.pink:C.ink}); });
 }});
+// room orbit pause / play: one small button right above the room button, only while the coins are in the room
+const ROOM_BTN = (() => { const i = BAR.findIndex(b=>b[0]==='room'), step = (700-2*23.85-68.47)/(BAR.length-1); return 410+23.85+34.24+i*step; })();
+const pauseP = panel({name:'room pause',x:ROOM_BTN-32,y:793,w:64,h:64,margin:12,parent:fixed,z:.006,draw(ctx,p){
+  circleButton(ctx,p,'pause',32,32,56,state.roomPaused?'play':'pause',()=>{ state.roomPaused = !state.roomPaused; pauseP.dirty = true;
+    toast(state.roomPaused?'Orbits stopped · arrange the coins, then play':'Orbits running'); },{iconSize:24,iconColor:state.roomPaused?C.pink:C.ink});
+}});
+pauseP.mesh.visible = false;
 // ---- joystick: move the landing like a mobile FPS thumbstick (right of the bottom bar, shown with the joystick button)
 // pad: up = away from you, down = toward you, sideways = left / right · slider: up / down · speed grows with the push, springs back on release
 // angle mode (button right of the joystick): sideways = turn left / right, up / down = tilt the top away / toward you · slider still lifts
@@ -906,8 +915,122 @@ function updateLinks(t){
   for (const g of [linkBeads.geometry,linkFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
 }
 
-// ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
 const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   // diameter m, spin rad/s, reflections, roughness ×, metalness ×, aged warm tint
+// ---------------------------------------------------------------- room orbit: the coins circle the user like a solar system (no water in the room)
+// centre = the user (head position, eased, so walking keeps you in the middle) · orbit distance = the user's interest:
+// grab a coin (pinch near it, or pinch-ray and push / pull the hand) and let it go nearer or farther — it keeps orbiting there
+// orbit speed ← strength (latest observation of the chosen horizon): stronger = faster, weaker = slower, all slow · pause stops every orbit
+const ROOM = {coin:.08, r0:.7, lane:.12, rMin:.35, rMax:3.2, dy:-.15, dyMin:-1.2, dyMax:.8, w:.05, zSpan:2.2, ease:.6,
+              bob:.008, follow:2.5, grabNear:.09, push:4, appear:.8};   // coin Ø m · default lanes · speed: w rad/s at zero, ×2 per +zSpan, ÷2 per −zSpan
+const orbitRoot = new THREE.Group(); orbitRoot.name = 'room orbit'; orbitRoot.visible = false; scene.add(orbitRoot);
+const orbitCentre = new THREE.Vector3(); let orbitSnap = true;
+const ROOM_K = ROOM.coin/COIN.dia;                                           // coin + halo scale against the diorama's
+const roomCoins = CURRENCIES.map((cur,i)=>{
+  const g = new THREE.Group(); g.scale.setScalar(0); orbitRoot.add(g);
+  const fallback = new THREE.Mesh(new THREE.SphereGeometry(.02,32,16),new THREE.MeshStandardMaterial({color:'#eef3ff',emissive:'#5d86ff',emissiveIntensity:.6,roughness:.2,metalness:.1}));
+  g.add(fallback);
+  const spin = new THREE.Group(); g.add(spin);
+  const halo = makeHalo(cur); halo.pts.material.size = HALO.size*ROOM_K/WIN.fill; g.add(halo.pts); g.add(halo.rim);
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false})); g.add(hit);
+  const rc = {cur,i,g,fallback,spin,halo,hit,phase:i*.7,r:ROOM.r0+i*ROOM.lane,a:0,dy:ROOM.dy,w:ROOM.w,held:false,z:0};
+  hit.userData.roomCoin = rc; return rc;
+});
+function roomAddCoin(cur,holder){                                            // a copy of the window's coin, with its own (unclipped) materials
+  const rc = roomCoins.find(c=>c.cur===cur); if (!rc) return;
+  const copy = holder.clone(true);
+  copy.traverse(o=>{ if (o.isMesh) { o.material = o.material.clone(); o.material.clippingPlanes = null; } });
+  rc.spin.add(copy); rc.fallback.visible = false;
+}
+const roomHead = new THREE.Vector3(), roomFwd = new THREE.Vector3(), roomQ = new THREE.Quaternion();
+function headPose(){
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  cam.getWorldPosition(roomHead); roomFwd.set(0,0,-1).applyQuaternion(cam.getWorldQuaternion(roomQ)); roomFwd.y = 0;
+  if (roomFwd.lengthSq()<1e-4) roomFwd.set(0,0,-1); roomFwd.normalize();
+}
+function roomDefaults(){                                                     // lanes in ring order, spread around, the first one straight ahead
+  headPose(); const yaw = Math.atan2(roomFwd.x,-roomFwd.z);
+  roomCoins.forEach((rc,i)=>{ rc.r = ROOM.r0+i*ROOM.lane; rc.a = yaw+i*Math.PI/4; rc.dy = ROOM.dy; });
+  state.roomCoins = null; orbitSnap = true;
+}
+function roomRestore(){
+  const saved = state.roomCoins; if (!saved) { roomDefaults(); return; }
+  for (const rc of roomCoins) { const v = saved[rc.cur]; if (v) [rc.r,rc.a,rc.dy] = v; }
+}
+let roomFade = 0;                                                            // 0 hidden … 1 shown (grow-in / shrink-out)
+function setRoom(on){
+  state.roomOn = on;
+  if (on) { roomRestore(); orbitSnap = true; toast('Coins around you · grab one to bring it closer or push it away'); }
+  else toast('Coins back in the window');
+  barP.dirty = pauseP.dirty = true; pauseP.mesh.visible = on;
+}
+function roomPos(rc,t,out){
+  return out.set(orbitCentre.x+Math.sin(rc.a)*rc.r, orbitCentre.y+rc.dy+ROOM.bob*Math.sin(t*.7+rc.phase), orbitCentre.z-Math.cos(rc.a)*rc.r);
+}
+// faint orbit of the coin in the hand, so the user sees where it will circle
+const heldRing = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({length:128},(_,k)=>new THREE.Vector3(Math.sin(k/128*Math.PI*2),0,-Math.cos(k/128*Math.PI*2)))),
+  new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.35,depthWrite:false,toneMapped:false}));
+heldRing.visible = false; orbitRoot.add(heldRing);
+const roomV = new THREE.Vector3(), roomO = new THREE.Vector3(), roomD = new THREE.Vector3();
+function roomHandGrab(s){                                                    // pinch right at a coin: it follows the hand
+  if (!state.roomOn || state.hidden || !s.hand) return false;
+  const j = s.hand.joints; if (!j?.['index-finger-tip']?.visible || !j['thumb-tip']?.visible) return false;
+  pinchW(s,roomV); let best = null, bd = ROOM.grabNear;
+  for (const rc of roomCoins) { const d = rc.g.position.distanceTo(roomV); if (d<bd && !rc.held) { bd = d; best = rc; } }
+  if (!best) return false;
+  best.held = true; s.drag = {kind:'roomCoin',rc:best,mode:'hand',off:best.g.position.clone().sub(roomV)}; return true;
+}
+function rayHeadDist(s){ roomO.setFromMatrixPosition(s.controller.matrixWorld); return Math.hypot(roomO.x-roomHead.x,roomO.z-roomHead.z); }
+function roomRayGrab(s,hit){                                                 // pinch-ray: push the hand away to send it farther, pull it in to bring it closer
+  const rc = hit.roomCoin; if (rc.held) return;
+  rc.held = true; headPose();
+  s.drag = {kind:'roomCoin',rc,mode:'ray',dist:hit.distance,d0:s.controller ? rayHeadDist(s) : 0, dist0:hit.distance};
+}
+function roomDragUpdate(s){
+  const dr = s.drag, rc = dr.rc;
+  if (dr.mode==='hand') {
+    const j = s.hand.joints; if (!j['index-finger-tip']?.visible || !j['thumb-tip']?.visible) { dragEnd(s); return; }
+    rc.g.position.copy(pinchW(s,roomV)).add(dr.off);
+  } else if (s.controller) {
+    if (!s.controller.visible) { dragEnd(s); return; }
+    headPose(); roomO.setFromMatrixPosition(s.controller.matrixWorld); roomD.set(0,0,-1).transformDirection(s.controller.matrixWorld);
+    dr.dist = Math.max(.15,Math.min(ROOM.rMax+.5,dr.dist0+(rayHeadDist(s)-dr.d0)*ROOM.push));
+    rc.g.position.copy(roomO).addScaledVector(roomD,dr.dist);
+  } else if (s.ray) rc.g.position.copy(s.ray.o).addScaledVector(s.ray.d,dr.dist);   // desktop: drag, wheel = nearer / farther
+  const x = rc.g.position.x-orbitCentre.x, z = rc.g.position.z-orbitCentre.z, r = Math.max(ROOM.rMin,Math.min(ROOM.rMax,Math.hypot(x,z)));
+  heldRing.visible = true; heldRing.position.set(orbitCentre.x,rc.g.position.y,orbitCentre.z); heldRing.scale.setScalar(r);
+}
+function roomDrop(rc){
+  const x = rc.g.position.x-orbitCentre.x, z = rc.g.position.z-orbitCentre.z;
+  rc.r = Math.max(ROOM.rMin,Math.min(ROOM.rMax,Math.hypot(x,z))); rc.a = Math.atan2(x,-z);
+  rc.dy = Math.max(ROOM.dyMin,Math.min(ROOM.dyMax,rc.g.position.y-orbitCentre.y));
+  rc.held = false; heldRing.visible = roomCoins.some(c=>c.held);
+  toast(`${rc.cur} · ${Math.round(rc.r*100)} cm from you`,1600);
+}
+addEventListener('wheel',e=>{ if (mouse.drag?.kind==='roomCoin' && mouse.drag.mode==='ray') { mouse.drag.dist = Math.max(.15,Math.min(ROOM.rMax+.5,mouse.drag.dist-e.deltaY*.002)); e.preventDefault(); } },{passive:false});
+let roomLast = null;
+function updateRoomOrbit(t){
+  const dt = Math.min(.1,Math.max(0,t-(roomLast ?? t))); roomLast = t;
+  const show = state.roomOn && !state.hidden;
+  roomFade = Math.max(0,Math.min(1,roomFade+(show?1:-1)*dt/ROOM.appear));
+  orbitRoot.visible = roomFade>0;
+  if (!orbitRoot.visible) { orbitSnap = true; return; }
+  headPose();
+  if (orbitSnap) { orbitCentre.copy(roomHead); orbitSnap = false; }
+  else orbitCentre.lerp(roomHead,1-Math.exp(-ROOM.follow*dt));
+  const last = loop.obs[loop.obs.length-1], e = roomFade*roomFade*(3-2*roomFade), saved = state.roomCoins || (state.roomCoins = {});
+  for (const rc of roomCoins) {
+    rc.z = zAt(last,rc.cur);
+    const target = ROOM.w*Math.pow(2,rc.z/ROOM.zSpan);                      // stronger → faster, weaker → slower
+    rc.w += (target-rc.w)*Math.min(1,dt/ROOM.ease);
+    if (!rc.held) { if (!state.roomPaused) rc.a += rc.w*dt; roomPos(rc,t,rc.g.position); }
+    rc.g.scale.setScalar(ROOM_K*e);
+    rc.spin.rotation.y = t*COIN.spin+rc.phase;
+    updateHalo(rc,t,dt,rc.z>=0?UP:DOWN);
+    const v = saved[rc.cur] || (saved[rc.cur] = [0,0,0]); v[0] = rc.r; v[1] = rc.a; v[2] = rc.dy;
+  }
+}
+
+// ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
 const coinEnv = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.04).texture;
 const ktx2 = new KTX2Loader().setTranscoderPath('./vendor/addons/libs/basis/').detectSupport(renderer);
 const gltfLoader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
@@ -921,6 +1044,7 @@ for (const m of marbles) {
     holder.rotation.x = Math.PI/2;                            // coin lies flat in the file; stand it upright
     coin.traverse(o => { if (o.isMesh) { const mt = o.material; mt.envMap = coinEnv; mt.envMapIntensity = COIN.env;
       mt.roughness = COIN.rough; mt.metalness = Math.min(mt.metalness,1)*COIN.metal; mt.color.multiply(new THREE.Color(COIN.tint)); } });
+    roomAddCoin(m.cur,holder);                                // its copy for the room orbit, before the window clipping is set
     m.spin.add(holder); m.coin = holder; m.sphere.visible = false; clipToWindow(holder);
   }, undefined, err => console.warn('coin', m.cur, err));
 }
@@ -1311,6 +1435,7 @@ function gridGrabEnd(s){
 let tablePlaneLock = false;
 function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
+  if (dr.kind==='roomCoin') { roomDrop(dr.rc); return; }
   if (dr.kind==='stick') { stickP.dirty = true; return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
@@ -1336,6 +1461,7 @@ function updateDesk(t,frame){
   // drags
   for (const s of sources) if (s.drag) {
     if (s.drag.kind==='stick' && s.drag.poke) continue;                  // fingertip drag runs in updateXRInput
+    if (s.drag.kind==='roomCoin') { roomDragUpdate(s); continue; }
     if (s.drag.kind==='dioGrab') { grabUpdate(s); continue; }
     if (s.drag.kind==='dioPinchScale') { pinchScaleUpdate(s); continue; }
     if (s.drag.kind==='maniScale') { maniScaleUpdate(s); continue; }
@@ -1598,6 +1724,7 @@ const maniCapP = panel({name:'manifold caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:43
 }});
 maniCapP.mesh.visible = false;
 if (state.maniOnTable && MANI_DATA) maniToTable(); else state.maniOnTable = false;
+if (state.roomOn) { roomRestore(); pauseP.mesh.visible = true; }
 
 // ---------------------------------------------------------------- placement
 const tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
@@ -1626,6 +1753,7 @@ function targets(){ const list = []; for (const p of panels) if (p.mesh.visible 
   if (state.dioOnTable && dio.visible) { list.push(itemPad,rotRing.userData.hit); for (const c of corners) list.push(c.hit); }
   if (deskGrid.visible) list.push(...gridFrame);
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit);
+  if (orbitRoot.visible && state.roomOn) for (const rc of roomCoins) if (!rc.held) list.push(rc.hit);
   if (mani.visible && (board.visible || state.maniOnTable) && mani.userData.grab) { list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit); if (state.maniOnTable) list.push(...maniPads); }
   return list; }
 function pick(origin,dir){
@@ -1635,6 +1763,7 @@ function pick(origin,dir){
     if (h.object.userData.kind==='gridMove') {                           // the grid's invisible edge must not swallow the bar or the joystick behind it
       const f = hits.find(o=>o.object.parent===fixed && o.object.userData.panel?.hit(o.uv).region);
       if (f) { const p = f.object.userData.panel, {region} = p.hit(f.uv); return {panel:p,region,point:f.point,distance:f.distance}; } }
+    if (h.object.userData.roomCoin) return {roomCoin:h.object.userData.roomCoin,point:h.point,distance:h.distance};
     if (h.object.userData.currency) return {currency:h.object.userData.currency,point:h.point,distance:h.distance};
     if (h.object.userData.kind==='maniSpin') { const q = hits.find(o=>o.object.userData.kind==='maniPin');   // a pin inside the grab volume wins
       if (q) return {kind:'maniPin',object:q.object,point:q.point,distance:q.distance}; }
@@ -1654,11 +1783,13 @@ function setHover(source,hit){
   for (const p of new Set([prev?.panel,next?.panel].filter(Boolean))) { p.hover = sources.map(s=>s.hover).find(h=>h?.panel===p)?.id ?? null; p.dirty = true; }
 }
 function press(source,hit){
+  if (roomHandGrab(source)) return;                                      // pinch right at a coin in the room
   if (source.hand && maniScaleStart(source)) return;                      // second hand while the first turns the manifold
   if (source.hand && state.dioOnTable && !state.hidden && pinchScaleStart(source)) return;    // second hand while the first holds
   if ((hit?.kind==='dioScale' || hit?.kind==='dioRotate' || hit?.kind==='gridMove') && hit.distance<.15) { dragStart(source,hit); return; }   // a handle right at the fingers wins over the body grab
   if (source.hand && state.dioOnTable && !state.hidden && handGrabStart(source)) return;
   if (!hit) return;
+  if (hit.roomCoin) { roomRayGrab(source,hit); return; }
   if (hit.currency) { setCurrency(hit.currency); return; }
   if (hit.kind==='maniPin') { maniInfo(hit.object.userData.pin); return; }
   if (hit.kind==='maniSpin') { maniSpinStart(source,hit.point); return; }
@@ -1706,8 +1837,8 @@ function mousePick(e){ ndc.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)
   mouse.ray = {o:raycaster.ray.origin.clone(),d:raycaster.ray.direction.clone()};
   return pick(raycaster.ray.origin.clone(),raycaster.ray.direction.clone()); }
 renderer.domElement.addEventListener('pointermove',e=>{ mouse.hit = mousePick(e); setHover(mouse,mouse.hit);
-  renderer.domElement.style.cursor = mouse.drag ? 'grabbing' : mouse.hit?.kind ? 'grab' : mouse.hit?.region||mouse.hit?.currency ? 'pointer' : ''; });
-renderer.domElement.addEventListener('pointerdown',e=>{ mouse.hit = mousePick(e); if (mouse.hit?.region||mouse.hit?.currency||mouse.hit?.kind) { orbit.enabled = false; press(mouse,mouse.hit); } });
+  renderer.domElement.style.cursor = mouse.drag ? 'grabbing' : mouse.hit?.kind ? 'grab' : mouse.hit?.roomCoin ? 'grab' : mouse.hit?.region||mouse.hit?.currency ? 'pointer' : ''; });
+renderer.domElement.addEventListener('pointerdown',e=>{ mouse.hit = mousePick(e); if (mouse.hit?.region||mouse.hit?.currency||mouse.hit?.kind||mouse.hit?.roomCoin) { orbit.enabled = false; press(mouse,mouse.hit); } });
 addEventListener('pointerup',e=>{ mouse.hit = mousePick(e); release(mouse,mouse.hit); orbit.enabled = true; });
 
 const tipPos = new THREE.Vector3(), local = new THREE.Vector3(), orig = new THREE.Vector3(), dirV = new THREE.Vector3();
@@ -1755,7 +1886,7 @@ function updateXRInput(){
 
 // ---------------------------------------------------------------- session
 let needsPlace = 0;
-renderer.xr.addEventListener('sessionstart',()=>{ scene.background = null; renderer.setClearAlpha(0); needsPlace = 12;
+renderer.xr.addEventListener('sessionstart',()=>{ scene.background = null; renderer.setClearAlpha(0); needsPlace = 12; orbitSnap = true;
   FPS.target = renderer.xr.getSession()?.frameRate || 72; });
 renderer.xr.addEventListener('sessionend',()=>{ scene.background = desktopBg; FPS.target = 60; boardRoot.position.set(0,1.4,0); boardRoot.rotation.set(0,0,0);
   for (const it of roomItems.values()) { roomGroup.remove(it.lines); it.lines.geometry.dispose(); } roomItems.clear(); tablePlane = null; placeGrid(); });
@@ -1786,6 +1917,7 @@ renderer.setAnimationLoop((now,frame)=>{
   updateStick(Math.min(.1,t-(lastT ?? t))); lastT = t;
   updateDiorama(t);
   updateDesk(t,frame);
+  updateRoomOrbit(t);
   // diorama in the window only while the board hides its box; on the table it is always there and the window shows the 2D view
   const wSeen = windowSeen(), seen = state.dioOnTable || wSeen, maniView = state.winView==='manifold';
   winBox.visible = wSeen && (!state.dioOnTable || maniView); winTank.visible = !maniView; viewPlane.visible = state.dioOnTable && !maniView;
