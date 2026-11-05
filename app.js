@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '40';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '41';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -1887,10 +1887,12 @@ function setWinView(id){
 // ---- Manifold hologram (concept): Barış's terrain method on his old manifold-v0 fixture
 // samples = every frame's currency positions: x = pc1, z = pc2, height = strength (Barış's toScene / height mapping)
 // terrain = compact quartic local mean (bandwidth .65, ≥3 samples), 48-step grid inside a ±3 disc, contours every .5
-// a semi-opaque surface, coral contours, and pins on the highest peaks / deepest pits that open an info pop-up when touched
+// line language (build 41): white hairline contours with evenly spaced beads over a very faint dark base, hairline trails,
+// one hairline arch per link, needle pins (stem · ring · triangle); fxlab pink is the only accent (selection)
 const MANI = {extent:3, steps:48, bandwidth:.65, interval:.5, minSamples:3, radius:.2, height:.045, tilt:.55, zoom:[.5,2.5],
-              surface:'#80a7dd', surfaceA:.26, lowA:.1, contour:C.coral, contourA:.9, ring:'#a7a2c9', ringA:.35,
-              pins:3, pinSep:.9, pinMin:.35, pinStem:.032, pinHead:.0075, spin:5.5,
+              surface:'#06050d', surfaceA:.22, lowA:.22, contour:'#ffffff', contourA:.62, minorA:.2, ring:'#a7a2c9', ringA:.35,
+              bead:'#ffffff', beadSize:.0019, beadA:.9,
+              pins:3, pinSep:.9, pinMin:.35, pinStem:.032, pinHead:.0055, spin:5.5,
               zoomTable:12, vExp:.6, markExp:.3, zoomRoom:12};   // zoomRoom: size when the user steps inside it (2.4 m radius around them)   // above 1× the height grows slower (z^vExp) so it stays walkable · pins / labels grow only z^markExp   // on the table it can grow to a 2.4 m radius — across the whole grid, to walk around   // spin: radians per metre of hand travel
 let MANI_DATA = null;
 try { MANI_DATA = await getJSON('data/manifold-concept.json'); } catch (e) { console.warn('manifold concept data',e); }
@@ -1910,10 +1912,10 @@ const maniPins = [];
 // ---- terrain at several levels of detail: the bigger the hologram is in the room, the finer the grid, the narrower the
 // smoothing (so the real samples show through), the denser the contours and the more pins. Built once per level, cached.
 const MANI_LOD = [
-  {R:0,    steps:48,  bw:.65, interval:.5,  minor:0,    pins:3, labels:false},
-  {R:.45,  steps:80,  bw:.5,  interval:.5,  minor:.25,  pins:5, labels:true},
-  {R:1.1,  steps:120, bw:.4,  interval:.25, minor:.125, pins:8, labels:true},
-];                                                                        // R: world radius (m) from which a level applies
+  {R:0,    steps:48,  bw:.65, interval:.5,  minor:0,    pins:3, labels:false, bead:.007},
+  {R:.45,  steps:80,  bw:.5,  interval:.5,  minor:.25,  pins:5, labels:true,  bead:.005},
+  {R:1.1,  steps:120, bw:.4,  interval:.25, minor:.125, pins:8, labels:true,  bead:.0035},
+];                                                                        // R: world radius (m) from which a level applies · bead: spacing of the beads on the main contours (terrain units)
 const maniLevels = [];                                                    // per level: {group, pins, lo, hi}
 let maniLevel = -1;
 function buildManiLevel(L){
@@ -1926,7 +1928,7 @@ function buildManiLevel(L){
     for (const t of [[a,c,b],[b,c,d]]) if (t.every(k=>verts[k].est)) tris.push(...t); }
   const ys = verts.filter(v=>v.est).map(v=>v.est.mean), lo = Math.min(...ys), hi = Math.max(...ys);
   const group = new THREE.Group(); group.name = 'manifold level '+L;
-  // surface: one colour, more opaque toward the peaks
+  // surface: a very faint dark base (keeps the far contours from tangling with the near ones)
   const pos = new Float32Array(verts.length*3), alpha = new Float32Array(verts.length);
   verts.forEach((v,k)=>{ pos[k*3] = v.x*hs; pos[k*3+1] = (v.est?.mean ?? 0)*vs; pos[k*3+2] = v.z*hs;
     alpha[k] = v.est ? MANI.lowA+(MANI.surfaceA-MANI.lowA)*(hi>lo ? (v.est.mean-lo)/(hi-lo) : .5) : 0; });
@@ -1942,7 +1944,7 @@ function buildManiLevel(L){
       gl_FragColor = vec4(uCol,vA); }`,
     transparent:true, depthWrite:false, side:THREE.DoubleSide, toneMapped:false, clipping:true}));
   surf.renderOrder = 1; group.add(surf);
-  // contours (isohypses) in coral: main lines every `interval`, finer, fainter ones every `minor` at the higher levels
+  // contours (isohypses), white hairlines: main lines every `interval`, finer, fainter ones every `minor` at the higher levels
   const contourSet = (step,skip) => { const seg = [];
     for (let n=0;n<tris.length;n+=3) {
       const vs3 = [tris[n],tris[n+1],tris[n+2]].map(k=>verts[k]), h = vs3.map(v=>v.est.mean);
@@ -1954,8 +1956,12 @@ function buildManiLevel(L){
     const g = new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(seg),3)); return g; };
   const contours = new THREE.LineSegments(contourSet(lod.interval,0),new THREE.LineBasicMaterial({color:MANI.contour,transparent:true,opacity:MANI.contourA,depthWrite:false,toneMapped:false}));
   contours.renderOrder = 2; group.add(contours);
-  if (lod.minor) { const fine = new THREE.LineSegments(contourSet(lod.minor,lod.interval),new THREE.LineBasicMaterial({color:MANI.contour,transparent:true,opacity:MANI.contourA*.35,depthWrite:false,toneMapped:false}));
+  if (lod.minor) { const fine = new THREE.LineSegments(contourSet(lod.minor,lod.interval),new THREE.LineBasicMaterial({color:MANI.contour,transparent:true,opacity:MANI.minorA,depthWrite:false,toneMapped:false}));
     fine.renderOrder = 2; group.add(fine); }
+  // beads: the main contour segments chained into lines, a bead every `lod.bead` along each line (same spacing everywhere)
+  const beads = new THREE.Points(contourBeads(contours.geometry.attributes.position.array,lod.bead),
+    new THREE.PointsMaterial({map:crispTex,color:MANI.bead,size:MANI.beadSize,transparent:true,opacity:MANI.beadA,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+  beads.renderOrder = 2; beads.frustumCulled = false; group.add(beads);
   // pins: local maxima / minima on the grid (8 neighbours), strongest first, kept apart
   const at = (i,j) => (i<0||j<0||i>N||j>N) ? null : verts[j*(N+1)+i].est;
   const ext = [], pins = [], sep = MANI.pinSep*lod.bw/MANI_LOD[0].bw;
@@ -1968,13 +1974,16 @@ function buildManiLevel(L){
     const list = ext.filter(e=>e.kind===kind).sort((a,b)=>Math.abs(b.v.est.mean)-Math.abs(a.v.est.mean)), keep = [];
     for (const e of list) { if (keep.length>=lod.pins) break; if (keep.every(k=>Math.hypot(k.v.x-e.v.x,k.v.z-e.v.z)>=sep)) keep.push(e); }
     for (const e of keep) {
-      const {x,z,est} = e.v, base = new THREE.Vector3(x*hs,est.mean*vs,z*hs), top = base.clone(); top.y += kind==='peak' ? MANI.pinStem : -MANI.pinStem;
+      // needle pin: thin white stem up from the spot, a flat ring lying on the surface, a small triangle on top —
+      // pointing up on a peak, down on a pit (same shape, only the direction tells them apart)
+      const {x,z,est} = e.v, base = new THREE.Vector3(x*hs,est.mean*vs,z*hs), top = base.clone(); top.y += MANI.pinStem;
       const g = new THREE.Group(); group.add(g);
-      const stem = new THREE.Line(new THREE.BufferGeometry().setFromPoints([base,top]),new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.8,toneMapped:false})); g.add(stem);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(MANI.pinHead,16,12),new THREE.MeshBasicMaterial({color:'#fff3ff',toneMapped:false})); head.position.copy(top); g.add(head);
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:C.pink,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));
-      glow.scale.setScalar(MANI.pinHead*5); glow.position.copy(top); g.add(glow);
-      const foot = new THREE.Mesh(new THREE.RingGeometry(MANI.pinHead*.9,MANI.pinHead*1.3,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,opacity:.7,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
+      const stem = new THREE.Line(new THREE.BufferGeometry().setFromPoints([base,top]),new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:.7,depthWrite:false,toneMapped:false})); g.add(stem);
+      const tri = new THREE.ConeGeometry(MANI.pinHead,MANI.pinHead*1.7,3); if (kind==='pit') tri.rotateX(Math.PI);
+      const head = new THREE.Mesh(tri,new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:.95,toneMapped:false})); head.position.copy(top); g.add(head);
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:C.pink,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));
+      glow.scale.setScalar(MANI.pinHead*5); glow.position.copy(top); glow.visible = false; g.add(glow);   // no glow in this language (kept for the open state)
+      const foot = new THREE.Mesh(new THREE.RingGeometry(MANI.pinHead*1.3,MANI.pinHead*1.6,32).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:.55,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
       foot.position.copy(base); foot.position.y += .0006; g.add(foot);
       const hit = new THREE.Mesh(new THREE.SphereGeometry(.014,8,6),new THREE.MeshBasicMaterial({visible:false})); hit.position.copy(top); g.add(hit);
       // who gathers here: weighted share of each currency among the samples inside the bandwidth
@@ -1983,7 +1992,28 @@ function buildManiLevel(L){
       hit.userData.kind = 'maniPin'; hit.userData.pin = pin; pins.push(pin);
     }
   }
-  return {group,pins,lo,hi};
+  return {group,pins,lo,hi,beads};
+}
+// chain loose contour segments (pairs of points) into polylines and drop a bead every `step` along them
+function contourBeads(seg,step){
+  const key = (i) => Math.round(seg[i]*1e5)+','+Math.round(seg[i+1]*1e5)+','+Math.round(seg[i+2]*1e5);
+  const n = seg.length/6, ends = new Map(), used = new Uint8Array(n), out = [];
+  for (let k=0;k<n;k++) for (const e of [0,1]) { const kk = key(k*6+e*3); (ends.get(kk) || ends.set(kk,[]).get(kk)).push([k,e]); }
+  const P = (k,e) => [seg[k*6+e*3],seg[k*6+e*3+1],seg[k*6+e*3+2]];
+  const next = (k,e) => { for (const [k2,e2] of ends.get(key(k*6+e*3))||[]) if (!used[k2]) return [k2,e2]; return null; };
+  for (let k=0;k<n;k++) { if (used[k]) continue;
+    // walk back to one end of this line, then forward along it
+    let ck = k, ce = 0; used[k] = 1; const back = [];
+    for (let s; (s = next(ck,ce)); ) { used[s[0]] = 1; back.push(s); ck = s[0]; ce = 1-s[1]; }
+    const line = [];
+    for (let i=back.length-1;i>=0;i--) { const [bk,be] = back[i]; line.push(P(bk,1-be)); }
+    line.push(P(k,0),P(k,1)); ck = k; ce = 1;
+    for (let s; (s = next(ck,ce)); ) { used[s[0]] = 1; line.push(P(s[0],1-s[1])); ck = s[0]; ce = 1-s[1]; }
+    let carry = step*.5;
+    for (let i=1;i<line.length;i++) { const a = line[i-1], b = line[i], L = Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]);
+      let d = carry; while (d<=L) { const u = d/L; out.push(a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u+.0002,a[2]+(b[2]-a[2])*u); d += step; }
+      carry = d-L; } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(out),3)); return g;
 }
 function setManiLevel(L){
   if (L===maniLevel) return;
@@ -2002,9 +2032,10 @@ const maniWorldR = () => MANI.radius*(state.maniZoom||1)*(maniOut() ? 1 : (board
 function maniLevelFor(R){ let L = 0; for (let k=1;k<MANI_LOD.length;k++) if (R>=MANI_LOD[k].R*(k<=maniLevel ? .92 : 1.08)) L = k; return L; }
 
 // ---- currency trails: each currency's own path through all frames — where it stood (behaviour plane) and how strong it
-// was (height). Old end faint, newest end bright with a glowing head; a slow pulse runs along toward the present.
-// The selected currency's trail is bright, the others quiet. Colours: CUR_COL (still the placeholder palette).
-const MANI_TRAIL = {sub:4, ribbon:.0035, coin:.018, oldA:.06, newA:.75, dim:.2, pulses:5, speed:.12, head:.006, label:.05};
+// was (height). A white hairline with evenly spaced beads: old end faint, newest end bright; a slow pulse runs along toward
+// the present. The selected currency's trail turns fxlab pink and bright, the others stay quiet white.
+const MANI_TRAIL = {sub:4, ribbon:.0035, hitW:.012, coin:.018, oldA:.04, newA:.8, dim:.1, pulses:5, speed:.12, head:.006, label:.05,
+                    bead:.006, beadSize:.0019, glow:2.2, glowA:.22, glowSel:.42};   // hitW: width of the invisible touch band · bead: spacing (terrain units) · glow: soft light around the coin (× coin Ø)
 const maniTrails = [];
 const trailUni = {uTime:{value:0}};
 function buildManiTrails(){
@@ -2013,43 +2044,57 @@ function buildManiTrails(){
     const pts = F.map(f=>f.points[cur]).filter(Boolean).map(p=>new THREE.Vector3(p[0]*hs,p[1]*vs+.001,p[2]*hs));
     if (pts.length<2) continue;
     const curve = new THREE.CatmullRomCurve3(pts,false,'centripetal'), sm = curve.getPoints((pts.length-1)*MANI_TRAIL.sub);
-    // ribbon: a flat band along the path (horizontal, its width across the direction of travel)
-    const n = sm.length, rp = new Float32Array(n*6), u = new Float32Array(n*2), idx = [], hw = MANI_TRAIL.ribbon/2;
+    // touch band: an invisible flat band along the path, a little wider than the line so a finger or ray finds it
+    const n = sm.length, rp = new Float32Array(n*6), u = new Float32Array(n*2), idx = [], hw = MANI_TRAIL.hitW/2;
     for (let k=0;k<n;k++) { const a = sm[Math.max(0,k-1)], b = sm[Math.min(n-1,k+1)];
       let tx = b.x-a.x, tz = b.z-a.z; const l = Math.hypot(tx,tz)||1; tx /= l; tz /= l;
       rp.set([sm[k].x-tz*hw,sm[k].y,sm[k].z+tx*hw, sm[k].x+tz*hw,sm[k].y,sm[k].z-tx*hw],k*6); u[k*2] = u[k*2+1] = k/(n-1);
       if (k<n-1) idx.push(k*2,k*2+1,k*2+2, k*2+1,k*2+3,k*2+2); }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(rp,3)); g.setAttribute('aU',new THREE.BufferAttribute(u,1)); g.setIndex(idx);
-    const mat = new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(CUR_COL[cur]||'#ffffff')},uSel:{value:0},uTime:trailUni.uTime},
+    const g = new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(rp,3)); g.setIndex(idx);
+    // the visible trail: one hairline along the path
+    const lu = new Float32Array(n); for (let k=0;k<n;k++) lu[k] = k/(n-1);
+    const lg = new THREE.BufferGeometry().setFromPoints(sm); lg.setAttribute('aU',new THREE.BufferAttribute(lu,1));
+    const mat = new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color('#ffffff')},uHot:{value:new THREE.Color(C.pink)},uSel:{value:0},uTime:trailUni.uTime},
       vertexShader:`#include <clipping_planes_pars_vertex>
         attribute float aU; varying float vU; void main(){ vU = aU; vec4 mvPosition = modelViewMatrix*vec4(position,1.); gl_Position = projectionMatrix*mvPosition;
         #include <clipping_planes_vertex>
         }`,
       fragmentShader:`#include <clipping_planes_pars_fragment>
-        uniform vec3 uCol; uniform float uSel; uniform float uTime; varying float vU; void main(){
+        uniform vec3 uCol; uniform vec3 uHot; uniform float uSel; uniform float uTime; varying float vU; void main(){
         #include <clipping_planes_fragment>
         float a = mix(${MANI_TRAIL.oldA.toFixed(3)},${MANI_TRAIL.newA.toFixed(3)},pow(vU,1.6));
-        float f = fract(vU*${MANI_TRAIL.pulses.toFixed(1)}-uTime*${MANI_TRAIL.speed.toFixed(3)}); a += .5*exp(-f*18.)*vU;
+        float f = fract(vU*${MANI_TRAIL.pulses.toFixed(1)}-uTime*${MANI_TRAIL.speed.toFixed(3)}); a += .6*exp(-f*18.)*vU;
         a *= mix(${MANI_TRAIL.dim.toFixed(2)},1.,uSel);
-        gl_FragColor = vec4(mix(uCol,vec3(1.),.25*uSel),a); }`,
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false, clipping:true, side:THREE.DoubleSide});
-    const ribbon = new THREE.Mesh(g,mat); ribbon.renderOrder = 3; maniTurn.add(ribbon);
+        gl_FragColor = vec4(mix(uCol,uHot,uSel)*a,1.); }`,
+      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false, clipping:true});
+    const line = new THREE.Line(lg,mat); line.renderOrder = 3; line.frustumCulled = false; maniTurn.add(line);
+    const ribbon = new THREE.Mesh(g,new THREE.MeshBasicMaterial({visible:false,side:THREE.DoubleSide})); maniTurn.add(ribbon);   // touch band
+    // beads every MANI_TRAIL.bead along the path, brightness following the same old → new fade
+    const bpos = [], bcol = []; { let carry = MANI_TRAIL.bead*.5, acc = 0; const total = sm.reduce((a,q,k)=>k ? a+q.distanceTo(sm[k-1]) : 0,0);
+      for (let k=1;k<n;k++) { const a = sm[k-1], b = sm[k], L = a.distanceTo(b); let d = carry;
+        while (d<=L) { const q = a.clone().lerp(b,d/L), uu = (acc+d)/total, al = MANI_TRAIL.oldA+(MANI_TRAIL.newA-MANI_TRAIL.oldA)*Math.pow(uu,1.6);
+          bpos.push(q.x,q.y,q.z); bcol.push(al,al,al); d += MANI_TRAIL.bead; }
+        carry = d-L; acc += L; } }
+    const bg = new THREE.BufferGeometry(); bg.setAttribute('position',new THREE.Float32BufferAttribute(bpos,3)); bg.setAttribute('color',new THREE.Float32BufferAttribute(bcol,3));
+    const beads = new THREE.Points(bg,new THREE.PointsMaterial({map:crispTex,size:MANI_TRAIL.beadSize,vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+    beads.renderOrder = 3; beads.frustumCulled = false; maniTurn.add(beads);
     const end = pts[pts.length-1];
-    // the currency itself: a small coin (same aged bronze as everywhere) inside its glowing glass-marble rim, turning slowly
+    // the currency itself: a small coin (same aged bronze as everywhere) with a small, faint glow behind it, turning slowly
     const head = new THREE.Group(); head.position.copy(end); maniTurn.add(head);
     const spin = new THREE.Group(); head.add(spin);
     const fallback = new THREE.Mesh(new THREE.SphereGeometry(COIN.dia*.3,16,10),new THREE.MeshBasicMaterial({color:'#ffffff',toneMapped:false})); spin.add(fallback);
-    const rim = new THREE.Mesh(new THREE.SphereGeometry(HALO.rimR*.62,40,20),marbleRimMaterial()); head.add(rim);   // in coin units (COIN.dia), like the room coins' marble
-    const glow = rim;
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:'#ffffff',transparent:true,opacity:MANI_TRAIL.glowA,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));
+    glow.scale.setScalar(COIN.dia*MANI_TRAIL.glow); glow.renderOrder = 2; head.add(glow);                // in coin units (COIN.dia)
+    const rim = glow;
     // label above the head (higher detail levels only): the code in Manrope, on a transparent canvas
     const cv = document.createElement('canvas'); cv.width = 128; cv.height = 48; const cx = cv.getContext('2d');
-    cx.font = '800 30px Manrope'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillStyle = CUR_COL[cur]||'#ffffff'; cx.fillText(cur,64,25);
+    cx.font = '800 30px Manrope'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillStyle = '#ffffff'; cx.fillText(cur,64,25);
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
     const label = new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,toneMapped:false}));
     label.scale.set(MANI_TRAIL.label,MANI_TRAIL.label*48/128,1); label.position.copy(end); label.position.y += MANI_TRAIL.head*3.2; label.visible = false; maniTurn.add(label);
     const hit = new THREE.Mesh(new THREE.SphereGeometry(MANI_TRAIL.head*2.5,10,8),new THREE.MeshBasicMaterial({visible:false})); hit.position.copy(end); maniTurn.add(hit);
     const last = F[F.length-1].points[cur]?.[1] ?? 0;
-    const tr = {cur,mat,head,spin,fallback,rim,glow,label,end,ribbon,hit,sm,z:last,phase:CURRENCIES.indexOf(cur)*.8,frames:F.map((f,i)=>f.points[cur]?i:-1).filter(i=>i>=0)};
+    const tr = {cur,mat,line,beads,head,spin,fallback,rim,glow,label,end,ribbon,hit,sm,z:last,phase:CURRENCIES.indexOf(cur)*.8,frames:F.map((f,i)=>f.points[cur]?i:-1).filter(i=>i>=0)};
     ribbon.userData.kind = 'maniTrail'; ribbon.userData.trail = tr; hit.userData.kind = 'maniUnit'; hit.userData.trail = tr;
     maniTrails.push(tr);
   }
@@ -2064,54 +2109,50 @@ if (MANI_DATA) {
   grab.userData.kind = 'maniSpin'; grab.userData.h0 = h0; maniTurn.add(grab); mani.userData.grab = grab;
   buildManiTrails();
 }
-// ---- links between the currencies on the terrain: the same language as the room network — strands of tiny dots on
-// parabolic arches (cubic Bezier rising straight up out of one coin's glass rim and falling into the other's). Every pair is
-// there but faint; the selected currency's links are bright. Strength ← gap in latest strength (z): more strands, higher arch,
-// more and faster pulses running weaker → stronger. Colour flows from one currency's colour to the other's.
-const MLINK = {arch:.18, archPer:.2, strandsMax:5, fan:.55, bead:.0045, beadSize:.0026, beadsMax:150,
-               glow:.55, faint:.1, pulses:4, pulseSize:.008, speed:.1, speedPer:.35, pulseGlow:1};   // arch: height × distance (+ more for a wider gap)
+// ---- links between the currencies on the terrain: one white hairline arch per pair (cubic Bezier rising straight up off one
+// coin and falling onto the other). Every pair is there but faint; the selected currency's links turn fxlab pink. The line
+// itself never changes: the gap in latest strength (z) shows only in the pulse running weaker → stronger along it —
+// the wider the gap, the faster and brighter the pulse.
+const MLINK = {arch:.22, seg:40, faint:.06, hot:.6, pulses:2, pulseSize:.007, speed:.06, speedPer:.5, pulseMin:.35};   // arch: height × distance · speed: m/s at no gap, + speedPer at the widest gap · pulse brightness pulseMin … 1
 const maniPairs = []; for (let a=0;a<8;a++) for (let b=a+1;b<8;b++) maniPairs.push([a,b]);
-const mBeads = additivePoints(MLINK.beadSize,maniPairs.length*MLINK.strandsMax*(MLINK.beadsMax+1));
-const mFlow = additivePoints(MLINK.pulseSize,maniPairs.length*MLINK.strandsMax*MLINK.pulses);
-mBeads.material.map = crispTex; mBeads.renderOrder = mFlow.renderOrder = 4; mani.add(mBeads,mFlow);
-const mA = new THREE.Vector3(), mB = new THREE.Vector3(), mUp = new THREE.Vector3(), mSide = new THREE.Vector3(), mQ = new THREE.Quaternion(), mInv = new THREE.Matrix4();
-const M0 = new THREE.Vector3(), M1 = new THREE.Vector3(), M2 = new THREE.Vector3(), M3 = new THREE.Vector3(), MP = new THREE.Vector3();
+const mLines = new THREE.LineSegments(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+mLines.geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(maniPairs.length*MLINK.seg*6),3).setUsage(THREE.DynamicDrawUsage));
+mLines.geometry.setAttribute('color',new THREE.BufferAttribute(new Float32Array(maniPairs.length*MLINK.seg*6),3).setUsage(THREE.DynamicDrawUsage));
+mLines.frustumCulled = false;
+const mFlow = additivePoints(MLINK.pulseSize,maniPairs.length*MLINK.pulses);
+mLines.renderOrder = mFlow.renderOrder = 4; mani.add(mLines,mFlow);
+const mA = new THREE.Vector3(), mB = new THREE.Vector3(), mUp = new THREE.Vector3(), mInv = new THREE.Matrix4();
+const M0 = new THREE.Vector3(), M1 = new THREE.Vector3(), M2 = new THREE.Vector3(), M3 = new THREE.Vector3(), MP = new THREE.Vector3(), MQ = new THREE.Vector3();
 function updateManiLinks(t){
   if (maniTrails.length<2) return;
   mani.updateMatrixWorld(); mInv.copy(mani.matrixWorld).invert();
   mUp.set(0,1,0).applyQuaternion(maniTurn.quaternion);                     // the terrain's own up (the window view is tilted)
   const z = state.maniZoom||1, w = z<=1 ? 1 : Math.pow(z,MANI.markExp), ws = w*(maniOut() ? 1 : (boardRoot.scale.x||1));   // w: in mani's own units · ws: on screen (dot size)
-  const rimR = HALO.rimR*.62*MANI_TRAIL.coin/COIN.dia*w;                  // the glass rim's radius
-  mBeads.material.size = MLINK.beadSize*ws; mFlow.material.size = MLINK.pulseSize*ws;
-  const bp = mBeads.geometry.attributes.position.array, bc = mBeads.geometry.attributes.color.array;
+  const lift = MANI_TRAIL.coin*.6*w;                                       // leaves just above the coin
+  mFlow.material.size = MLINK.pulseSize*ws;
+  const lp = mLines.geometry.attributes.position.array, lc = mLines.geometry.attributes.color.array;
   const fp = mFlow.geometry.attributes.position.array, fc = mFlow.geometry.attributes.color.array;
-  let nb = 0, nf = 0; const bead = MLINK.bead*w;
+  let nl = 0, nf = 0; const N = MLINK.seg;
   for (const [ia,ib] of maniPairs) {
     const A = maniTrails[ia], B = maniTrails[ib]; if (!A || !B) continue;
-    const hot = A.cur===state.currency || B.cur===state.currency;
+    const sel = Math.max(A.mat.uniforms.uSel.value,B.mat.uniforms.uSel.value);   // eases with the trails' selection
     A.head.getWorldPosition(mA).applyMatrix4(mInv); B.head.getWorldPosition(mB).applyMatrix4(mInv);
-    const dist = mA.distanceTo(mB), gap = B.z-A.z, gapN = Math.min(1,Math.abs(gap)/2);
-    const strands = hot ? 1+Math.round((MLINK.strandsMax-1)*gapN) : 1, base = (hot ? MLINK.glow : MLINK.faint)/Math.sqrt(strands);
-    const h = dist*(MLINK.arch+MLINK.archPer*gapN);
-    mSide.subVectors(mB,mA).cross(mUp); if (mSide.lengthSq()<1e-10) mSide.set(1,0,0); mSide.normalize();
-    const cA = curCol[A.cur], cB = curCol[B.cur], n = Math.min(MLINK.beadsMax,Math.max(12,Math.floor((dist+2*h)/bead)));
-    const v = (MLINK.speed+MLINK.speedPer*gapN)/Math.max(dist+h,.01), fwd = gap>=0, nP = hot ? 1+Math.round((MLINK.pulses-1)*gapN) : 0;
-    for (let k=0;k<strands;k++) {
-      const o = strands>1 ? k/(strands-1)*2-1 : 0, wob = .15*Math.sin(t*.5+k*1.3+ia*2+ib);
-      M0.copy(mA).addScaledVector(mUp,rimR).addScaledVector(mSide,o*rimR*.5);
-      M3.copy(mB).addScaledVector(mUp,rimR).addScaledVector(mSide,o*rimR*.5);
-      M1.copy(M0).addScaledVector(mUp,h).addScaledVector(mSide,(o+wob)*rimR*MLINK.fan*2);
-      M2.copy(M3).addScaledVector(mUp,h).addScaledVector(mSide,(o-wob)*rimR*MLINK.fan*2);
-      for (let j=0;j<=n;j++) { const s = j/n; cub(s,M0,M1,M2,M3,MP);
-        bp[nb*3] = MP.x; bp[nb*3+1] = MP.y; bp[nb*3+2] = MP.z; const a = base*(.6+.4*Math.sin(Math.PI*s));
-        bc[nb*3] = (cA.r+(cB.r-cA.r)*s)*a; bc[nb*3+1] = (cA.g+(cB.g-cA.g)*s)*a; bc[nb*3+2] = (cA.b+(cB.b-cA.b)*s)*a; nb++; }
-      for (let j=0;j<nP;j++) { let u = (j/nP+k*.137+t*v)%1; if (!fwd) u = 1-u; cub(u,M0,M1,M2,M3,MP);
-        fp[nf*3] = MP.x; fp[nf*3+1] = MP.y; fp[nf*3+2] = MP.z; const a = Math.sin(Math.PI*u)*MLINK.pulseGlow/Math.sqrt(strands);
-        fc[nf*3] = Math.min(1,(cA.r+(cB.r-cA.r)*u)*a+.25*a); fc[nf*3+1] = Math.min(1,(cA.g+(cB.g-cA.g)*u)*a+.25*a); fc[nf*3+2] = Math.min(1,(cA.b+(cB.b-cA.b)*u)*a+.25*a); nf++; }
-    }
+    const dist = mA.distanceTo(mB), gap = B.z-A.z, gapN = Math.min(1,Math.abs(gap)/2), h = dist*MLINK.arch;
+    M0.copy(mA).addScaledVector(mUp,lift); M3.copy(mB).addScaledVector(mUp,lift);
+    M1.copy(M0).addScaledVector(mUp,h); M2.copy(M3).addScaledVector(mUp,h);
+    const a = MLINK.faint+(MLINK.hot-MLINK.faint)*sel;
+    const r = (1+(PINK.r-1)*sel)*a, g = (1+(PINK.g-1)*sel)*a, b = (1+(PINK.b-1)*sel)*a;
+    cub(0,M0,M1,M2,M3,MQ);
+    for (let j=1;j<=N;j++) { cub(j/N,M0,M1,M2,M3,MP);
+      lp.set([MQ.x,MQ.y,MQ.z,MP.x,MP.y,MP.z],nl*6); lc.set([r,g,b,r,g,b],nl*6); nl++; MQ.copy(MP); }
+    if (sel>.02) {                                                          // pulses only on the selected currency's links
+      const v = (MLINK.speed+MLINK.speedPer*gapN)/Math.max(dist+h,.01), fwd = gap>=0, br = (MLINK.pulseMin+(1-MLINK.pulseMin)*gapN)*sel;
+      for (let j=0;j<MLINK.pulses;j++) { let u = (j/MLINK.pulses+ia*.137+t*v)%1; if (!fwd) u = 1-u; cub(u,M0,M1,M2,M3,MP);
+        fp[nf*3] = MP.x; fp[nf*3+1] = MP.y; fp[nf*3+2] = MP.z; const k = Math.sin(Math.PI*u)*br;
+        fc[nf*3] = Math.min(1,(PINK.r*.6+.4)*k); fc[nf*3+1] = Math.min(1,(PINK.g*.6+.4)*k); fc[nf*3+2] = Math.min(1,(PINK.b*.6+.4)*k); nf++; } }
   }
-  mBeads.geometry.setDrawRange(0,nb); mFlow.geometry.setDrawRange(0,nf);
-  for (const g of [mBeads.geometry,mFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
+  mLines.geometry.setDrawRange(0,nl*2); mFlow.geometry.setDrawRange(0,nf);
+  for (const g of [mLines.geometry,mFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
 }
 const setManiClip = on => mani.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = on ? winPlanes : null; m.needsUpdate = true; } });
 setManiClip(true);                                                        // in the window it stays inside the box
@@ -2149,7 +2190,7 @@ const maniZY = z => z<=1 ? z : Math.pow(z,MANI.vExp);
 const _sv = new THREE.Vector3();
 function scaleManiMarkers(z,zy){
   const m = z<=1 ? 1 : Math.pow(z,MANI.markExp); _sv.set(m/z,m/zy,m/z);
-  for (const q of maniPins) { if (!q.base) continue; const dy = (q.kind==='peak'?1:-1)*MANI.pinStem*m/zy;
+  for (const q of maniPins) { if (!q.base) continue; const dy = MANI.pinStem*m/zy;
     q.head.position.set(q.base.x,q.base.y+dy,q.base.z); q.glow.position.copy(q.head.position); q.hit.position.copy(q.head.position);
     q.head.scale.copy(_sv); q.glow.scale.set(MANI.pinHead*5*m/z,MANI.pinHead*5*m/zy,1); q.hit.scale.copy(_sv); q.foot.scale.copy(_sv);
     const pa = q.stem.geometry.attributes.position; pa.setXYZ(1,q.head.position.x,q.head.position.y,q.head.position.z); pa.needsUpdate = true; }
@@ -2265,12 +2306,12 @@ function maniTouch(hit){
 }
 const maniPopP = panel({name:'manifold info',x:0,y:0,w:MANI_POP.w,h:MANI_POP.h,margin:16,z:.02,draw(ctx,p){
   const o = maniOpen; if (!o) return; const W = MANI_POP.w, H = MANI_POP.h;
-  ctx.save(); ctx.shadowColor = C.pink; ctx.shadowBlur = 10; rr(ctx,0,0,W,H,18); ctx.fillStyle = `rgba(30,27,58,${MANI_POP.fill})`; ctx.fill(); ctx.restore();
-  rr(ctx,0,0,W,H,18); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(231,168,240,.75)'; ctx.stroke();
+  rr(ctx,0,0,W,H,18); ctx.fillStyle = `rgba(30,27,58,${MANI_POP.fill})`; ctx.fill();       // light dark fill, hairline white edge
+  rr(ctx,.5,.5,W-1,H-1,18); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.stroke();
   const hot = p.hover==='close'; drawIcon(ctx,'x-circle',hot?C.pink:C.muted,W-24,24,20);
   p.region('close',W-48,0,48,48,()=>maniInfo(null));
   if (o.kind==='peak' || o.kind==='pit') {
-    drawIcon(ctx,o.kind==='peak'?'caret-up':'caret-down',C.coral,24,24,16);
+    drawIcon(ctx,o.kind==='peak'?'caret-up':'caret-down',C.ink,24,24,16);
     text(ctx,o.kind==='peak'?'PEAK':'PIT',38,25,{font:'800 13px Manrope',color:C.ink,ls:'.5px'});
     text(ctx,'MEAN STRENGTH',18,58,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
     text(ctx,zs(o.est.mean),18,83,{font:'600 22px "Kode Mono"',color:C.ink});
@@ -2281,7 +2322,7 @@ const maniPopP = panel({name:'manifold info',x:0,y:0,w:MANI_POP.w,h:MANI_POP.h,m
     return;
   }
   // a currency: latest state (head) or one moment of its path (ribbon)
-  const {tr,frame} = o, P = MANI_DATA.frames[frame].points[tr.cur], col = CUR_COL[tr.cur]||C.ink;
+  const {tr,frame} = o, P = MANI_DATA.frames[frame].points[tr.cur], col = C.pink;
   ctx.beginPath(); ctx.arc(24,24,5,0,Math.PI*2); ctx.fillStyle = col; ctx.fill();
   text(ctx,tr.cur,36,25,{font:'800 15px Manrope',color:C.ink,ls:'.5px'});
   text(ctx,o.kind==='unit'?'LATEST · '+fmtFrame(frame):fmtFrame(frame),W-48,25,{font:'400 11px "Kode Mono"',color:C.muted,align:'right'});
@@ -2292,15 +2333,15 @@ const maniPopP = panel({name:'manifold info',x:0,y:0,w:MANI_POP.w,h:MANI_POP.h,m
   else text(ctx,`step ${tr.frames.indexOf(frame)+1} / ${tr.frames.length} · now ${zs(ys[ys.length-1])}`,18,105,{font:'400 11px "Kode Mono"',color:C.dim});
   text(ctx,'MOVING ALIKE',18,132,{font:'800 10px Manrope',color:C.muted,ls:'.5px'});
   alike(frame,tr.cur).forEach(([c,d],i)=>{ const x = 18+i*78;
-    text(ctx,c,x,157,{font:'800 13px Manrope',color:CUR_COL[c]||C.ink}); text(ctx,d.toFixed(1),x+34,157.5,{font:'400 11px "Kode Mono"',color:C.dim}); });
+    text(ctx,c,x,157,{font:'800 13px Manrope',color:C.ink}); text(ctx,d.toFixed(1),x+34,157.5,{font:'400 11px "Kode Mono"',color:C.dim}); });
 }});
 maniPopP.mesh.visible = false;
-// the rising line, and a small ring where it starts
+// the rising line (white hairline), and a small ring where it starts
 const leadLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({length:MANI_POP.seg+1},()=>new THREE.Vector3())),
-  new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.85,depthWrite:false,toneMapped:false}));
+  new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:.75,depthWrite:false,toneMapped:false}));
 leadLine.frustumCulled = false; leadLine.visible = false; leadLine.renderOrder = 5; scene.add(leadLine);
-const leadDot = new THREE.Mesh(new THREE.RingGeometry(.004,.0065,24).rotateX(-Math.PI/2),
-  new THREE.MeshBasicMaterial({color:C.pink,transparent:true,opacity:.9,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
+const leadDot = new THREE.Mesh(new THREE.RingGeometry(.0045,.0055,32).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
 leadDot.visible = false; leadDot.renderOrder = 5; scene.add(leadDot);
 // grab bar under the window (out in the room): pinch it and put the window anywhere — the line stretches after it
 const popBar = new THREE.Group(); popBar.position.y = -(MANI_POP.h/2+MANI_POP.barGap)*S; maniPopP.mesh.add(popBar);
@@ -2319,7 +2360,8 @@ function maniInfo(o){
   leadLine.visible = leadDot.visible = !!maniOpen;
   const home = maniOut() ? scene : board; if (maniPopP.mesh.parent!==home) home.add(maniPopP.mesh);   // out of the window it floats in the room
   scaleManiMarkers(state.maniZoom||1,maniZY(state.maniZoom||1));
-  for (const q of maniPins) { const on = q===maniOpen; if (on) q.head.scale.multiplyScalar(1.5); q.glow.material.opacity = on?1:.7; }
+  for (const q of maniPins) { const on = q===maniOpen; if (on) q.head.scale.multiplyScalar(1.4);   // the open pin turns pink
+    q.head.material.color.set(on?C.pink:'#ffffff'); q.stem.material.color.set(on?C.pink:'#ffffff'); q.foot.material.color.set(on?C.pink:'#ffffff'); }
 }
 const popW = new THREE.Vector3(), popA = new THREE.Vector3(), popT = new THREE.Vector3(), popC = new THREE.Vector3(), popS = new THREE.Vector3();
 const L0 = new THREE.Vector3(), L1 = new THREE.Vector3(), L2 = new THREE.Vector3(), L3 = new THREE.Vector3(), LP = new THREE.Vector3();
@@ -2331,11 +2373,13 @@ function updateManifold(t,visible){
   trailUni.uTime.value = t;
   for (const tr of maniTrails) { const on = tr.cur===state.currency ? 1 : 0; tr.mat.uniforms.uSel.value += (on-tr.mat.uniforms.uSel.value)*.15;
     tr.spin.rotation.y = t*COIN.spin+tr.phase;                                 // the coin turns like the others
-    const beat = 1-HALO.breath+HALO.breath*(.5+.5*Math.sin(t*2*Math.PI/HALO.period+tr.phase)), u = tr.rim.material.uniforms;   // glass rim breathes, up / down tint
-    u.uColor.value.copy(tr.z>=0?UP:DOWN).lerp(PINK,.2).lerp(WHITE,ROOM.haloLight); u.uStrength.value = HALO.rim*beat*ROOM.haloRim*(on?1.35:.85); }
+    const sel = tr.mat.uniforms.uSel.value;
+    tr.beads.material.color.copy(WHITE).lerp(PINK,sel); tr.beads.material.opacity = MANI_TRAIL.dim+(1-MANI_TRAIL.dim)*sel;
+    tr.glow.material.color.copy(WHITE).lerp(PINK,sel*.6); tr.glow.material.opacity = MANI_TRAIL.glowA+(MANI_TRAIL.glowSel-MANI_TRAIL.glowA)*sel; }
+  if (maniLevel>=0) { const z = state.maniZoom||1, ws = (z<=1 ? z : Math.pow(z,MANI.markExp))*(maniOut() ? 1 : (boardRoot.scale.x||1));   // dot sizes follow the markers
+    maniLevels[maniLevel].beads.material.size = MANI.beadSize*ws; for (const tr of maniTrails) tr.beads.material.size = MANI_TRAIL.beadSize*ws; }
   updateManiLinks(t);
   if (growNodes.visible) for (const n of growList) n.glow.material.opacity = .5+.3*Math.sin(t*2.2+n.a);
-  for (const q of maniPins) if (q!==maniOpen) q.glow.material.opacity = .55+.25*Math.sin(t*2+q.x);
   if (maniOpen) {
     const el = (performance.now()-maniOpenAt)/1000, grow = Math.min(1,el/MANI_POP.lineT), ease = 1-(1-grow)**3;
     anchorOf(maniOpen,popA); leadDot.position.copy(popA); leadDot.position.y += .001;
