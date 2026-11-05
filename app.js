@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '30';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '31';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -44,7 +44,7 @@ const state = {
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
   winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
-  roomOn: false, roomPaused: false, roomCoins: null,   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
+  roomOn: false, roomPaused: false, roomCoins: null, roomMin: false,   // roomMin: main screen folded into the small widget   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
@@ -376,7 +376,7 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
   ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -394,11 +394,26 @@ const barP = panel({name:'bottom bar',x:410,y:860,w:700,h:104.6,margin:20,parent
 }});
 // room orbit pause / play: one small button right above the room button, only while the coins are in the room
 const ROOM_BTN = (() => { const i = BAR.findIndex(b=>b[0]==='room'), step = (700-2*23.85-68.47)/(BAR.length-1); return 410+23.85+34.24+i*step; })();
-const pauseP = panel({name:'room pause',x:ROOM_BTN-32,y:793,w:64,h:64,margin:12,parent:fixed,z:.006,draw(ctx,p){
-  circleButton(ctx,p,'pause',32,32,56,state.roomPaused?'play':'pause',()=>{ state.roomPaused = !state.roomPaused; pauseP.dirty = true;
-    toast(state.roomPaused?'Orbits stopped · arrange the coins, then play':'Orbits running'); },{iconSize:24,iconColor:state.roomPaused?C.pink:C.ink});
+const pauseP = panel({name:'room pause',x:ROOM_BTN-66,y:793,w:132,h:64,margin:12,parent:fixed,z:.006,draw(ctx,p){
+  circleButton(ctx,p,'pause',32,32,56,state.roomPaused?'play':'pause',roomTogglePause,{iconSize:24,iconColor:state.roomPaused?C.pink:C.ink});
+  circleButton(ctx,p,'fold',100,32,56,'arrows-in-simple',()=>setRoomMin(true),{iconSize:24});
 }});
 pauseP.mesh.visible = false;
+function roomTogglePause(){ state.roomPaused = !state.roomPaused; pauseP.dirty = widgetP.dirty = true;
+  toast(state.roomPaused?'Orbits stopped · arrange the coins, then play':'Orbits running'); }
+// main screen folded: a small widget where the bottom bar was — pause / play and open the screen again
+const widgetGroup = new THREE.Group(); widgetGroup.name = 'room widget'; widgetGroup.visible = false; boardRoot.add(widgetGroup);
+const widgetP = panel({name:'room widget',x:BW/2-150,y:870,w:300,h:84,margin:20,parent:widgetGroup,z:.006,draw(ctx,p){
+  ctx.save(); ctx.shadowColor = '#0b0a18'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 5;
+  rr(ctx,0,0,300,84,42); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
+  rr(ctx,0,0,300,84,42); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+  text(ctx,'fxlab',30,38,{font:'800 22px Manrope',color:C.pink});
+  const rc = roomCoins.find(c=>c.cur===state.currency), z = rc ? rc.z : 0;
+  text(ctx,`${state.currency} ${z>=0?'+':'−'}${Math.abs(z).toFixed(2)} z`,30,60,{font:'400 13px "Kode Mono"',color:C.muted});
+  circleButton(ctx,p,'pause',300-42-64,42,56,state.roomPaused?'play':'pause',roomTogglePause,{iconSize:24,iconColor:state.roomPaused?C.pink:C.ink});
+  circleButton(ctx,p,'open',300-42,42,56,'arrows-out-simple',()=>setRoomMin(false),{iconSize:24});
+}});
+function setRoomMin(on){ state.roomMin = on; widgetP.dirty = pauseP.dirty = true; }
 // ---- joystick: move the landing like a mobile FPS thumbstick (right of the bottom bar, shown with the joystick button)
 // pad: up = away from you, down = toward you, sideways = left / right · slider: up / down · speed grows with the push, springs back on release
 // angle mode (button right of the joystick): sideways = turn left / right, up / down = tilt the top away / toward you · slider still lifts
@@ -521,7 +536,7 @@ const toastP = panel({name:'toast',x:410,y:1025,w:700,h:52,margin:10,parent:fixe
   ctx.font = '700 15px Manrope'; let m = toastMsg; while (ctx.measureText(m).width>660 && m.length>4) m = m.slice(0,-2);
   text(ctx,m===toastMsg?m:m+'…',350,26,{font:'700 15px Manrope',align:'center'});
 }});
-toastP.mesh.visible = false;
+toastP.mesh.visible = false; boardRoot.add(toastP.mesh);   // stays visible when the screen is folded into the widget
 function toast(msg,ms=3200){ toastMsg = msg; toastUntil = performance.now()+ms; toastP.mesh.visible = true; toastP.dirty = true; }
 
 // ---------------------------------------------------------------- 3D diorama (Barış's data)
@@ -923,9 +938,13 @@ const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   
 // orbit speed ← strength (latest observation of the chosen horizon): stronger = faster, weaker = slower, all slow · pause stops every orbit
 const ROOM = {coin:.08, r0:.7, lane:.12, rMin:.35, rMax:3.2, dy:-.15, dyMin:-1.2, dyMax:.8, w:.05, zSpan:2.2, ease:.6,
               bob:.008, follow:2.5, grabNear:.09, push:4, appear:.8,
-              haloDensity:.45, haloGlow:.35, haloRim:.3, haloSize:.75,           // quieter halo in the room, so the coin itself reads
+              haloDensity:.45, haloGlow:.28, haloRim:0, haloSize:.6,             // quieter halo in the room, so the coin itself reads: crisp dots, no glow, no rim
               coinEnv:.07, coinMetal:.55, coinTint:.8,                          // matter, darker coin copies (less shine)
               snap:12, throwMin:.55, throwGain:1.8, throwMax:4, drag:1.6, dragY:5, settle:.12, spinBoost:6};   // grab glides into the fingers · flick: release speed m/s → flight, slows down, takes the orbit where it stops   // coin Ø m · default lanes · speed: w rad/s at zero, ×2 per +zSpan, ÷2 per −zSpan
+function crispTexture(){ const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');   // hard-edged dot, no glow falloff
+  const gr = g.createRadialGradient(32,32,0,32,32,30); gr.addColorStop(0,'#fff'); gr.addColorStop(.8,'#fff'); gr.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.beginPath(); g.arc(32,32,30,0,Math.PI*2); g.fill(); return new THREE.CanvasTexture(c); }
+const crispTex = crispTexture();
 const orbitRoot = new THREE.Group(); orbitRoot.name = 'room orbit'; orbitRoot.visible = false; scene.add(orbitRoot);
 const orbitCentre = new THREE.Vector3(); let orbitSnap = true;
 const ROOM_K = ROOM.coin/COIN.dia;                                           // coin + halo scale against the diorama's
@@ -934,7 +953,8 @@ const roomCoins = CURRENCIES.map((cur,i)=>{
   const fallback = new THREE.Mesh(new THREE.SphereGeometry(.02,32,16),new THREE.MeshStandardMaterial({color:'#eef3ff',emissive:'#5d86ff',emissiveIntensity:.6,roughness:.2,metalness:.1}));
   g.add(fallback);
   const spin = new THREE.Group(); g.add(spin);
-  const halo = makeHalo(cur,ROOM.haloDensity); halo.pts.material.size = HALO.size*ROOM_K/WIN.fill*ROOM.haloSize; g.add(halo.pts); g.add(halo.rim);
+  const halo = makeHalo(cur,ROOM.haloDensity); halo.pts.material.size = HALO.size*ROOM_K/WIN.fill*ROOM.haloSize; halo.pts.material.map = crispTex;
+  g.add(halo.pts); if (ROOM.haloRim>0) g.add(halo.rim);
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,12,8),new THREE.MeshBasicMaterial({visible:false})); g.add(hit);
   const rc = {cur,i,g,fallback,spin,halo,hit,phase:i*.7,r:ROOM.r0+i*ROOM.lane,a:0,dy:ROOM.dy,w:ROOM.w,held:false,z:0,
               glowK:ROOM.haloGlow, rimK:ROOM.haloRim, fly:null, spinA:0, spinV:COIN.spin};
@@ -966,7 +986,7 @@ let roomFade = 0;                                                            // 
 function setRoom(on){
   state.roomOn = on;
   if (on) { roomRestore(); orbitSnap = true; toast('Coins around you · grab one to bring it closer or push it away'); }
-  else toast('Coins back in the window');
+  else { state.roomMin = false; toast('Coins back in the window'); }
   barP.dirty = pauseP.dirty = true; pauseP.mesh.visible = on;
 }
 function roomPos(rc,t,out){
@@ -983,13 +1003,13 @@ function roomHandGrab(s){                                                    // 
   pinchW(s,roomV); let best = null, bd = ROOM.grabNear;
   for (const rc of roomCoins) { const d = rc.g.position.distanceTo(roomV); if (d<bd && !rc.held) { bd = d; best = rc; } }
   if (!best) return false;
-  best.held = true; best.fly = null; s.drag = {kind:'roomCoin',rc:best,mode:'hand',off:best.g.position.clone().sub(roomV),hist:[]}; return true;
+  best.held = true; best.fly = null; s.drag = {kind:'roomCoin',rc:best,mode:'hand',off:best.g.position.clone().sub(roomV),hist:[],t0:performance.now(),from:roomV.clone()}; return true;
 }
 function rayHeadDist(s){ roomO.setFromMatrixPosition(s.controller.matrixWorld); return Math.hypot(roomO.x-roomHead.x,roomO.z-roomHead.z); }
 function roomRayGrab(s,hit){                                                 // pinch-ray: push the hand away to send it farther, pull it in to bring it closer
   const rc = hit.roomCoin; if (rc.held) return;
   rc.held = true; rc.fly = null; headPose();
-  s.drag = {kind:'roomCoin',rc,mode:'ray',dist:hit.distance,d0:s.controller ? rayHeadDist(s) : 0, dist0:hit.distance, hist:[]};
+  s.drag = {kind:'roomCoin',rc,mode:'ray',dist:hit.distance,d0:s.controller ? rayHeadDist(s) : 0, dist0:hit.distance, hist:[],t0:performance.now(),from:hit.point.clone()};
 }
 function roomDragUpdate(s){
   const dr = s.drag, rc = dr.rc;
@@ -1011,6 +1031,9 @@ function roomDragUpdate(s){
 }
 function roomRelease(dr){                                                  // a flick sends the coin flying; a calm release just leaves it there
   const rc = dr.rc, h = dr.hist || [];
+  const hand = dr.mode==='hand' && dr.src?.hand ? pinchW(dr.src,roomV) : rc.g.position;
+  if (performance.now()-dr.t0<350 && hand.distanceTo(dr.from)<.025) {   // a quick pinch without moving = tap: select it, it stays on its orbit
+    rc.held = false; heldRing.visible = roomCoins.some(c=>c.held||c.fly); setCurrency(rc.cur); return; }
   if (h.length>1) { const a = h[0], b = h[h.length-1], dt = b[0]-a[0];
     if (dt>.01) { const v = new THREE.Vector3(b[1]-a[1],b[2]-a[2],b[3]-a[3]).divideScalar(dt);
       if (v.length()>ROOM.throwMin) { v.multiplyScalar(ROOM.throwGain); if (v.length()>ROOM.throwMax) v.setLength(ROOM.throwMax);
@@ -1025,6 +1048,52 @@ function roomDrop(rc){
   toast(`${rc.cur} · ${Math.round(rc.r*100)} cm from you`,1600);
 }
 addEventListener('wheel',e=>{ if (mouse.drag?.kind==='roomCoin' && mouse.drag.mode==='ray') { mouse.drag.dist = Math.max(.15,Math.min(ROOM.rMax+.5,mouse.drag.dist-e.deltaY*.002)); e.preventDefault(); } },{passive:false});
+// ---- room links: parabolic particle cables from the selected coin to the others (all pairs with ALL LINKS)
+// same reading as the window: colour ← selected stronger (up tint) / weaker (down tint), other pairs soft pink ·
+// flow weak → strong, speed and count ← strength gap · breathing ← speculator CoT gap · crisp dots, no glow
+const RLINK = {arc:.12, arcPer:.22, bead:.014, beadSize:.0065, flowSize:.012, maxBeads:260, maxFlow:40, glow:.75, flowGlow:1.1};
+const roomPairs = []; for (let a=0;a<8;a++) for (let b=a+1;b<8;b++) roomPairs.push([a,b]);
+const rBeads = additivePoints(RLINK.beadSize,roomPairs.length*RLINK.maxBeads), rFlow = additivePoints(RLINK.flowSize,roomPairs.length*(RLINK.maxFlow+2));
+rBeads.material.map = rFlow.material.map = crispTex; orbitRoot.add(rBeads,rFlow);
+const rA = new THREE.Vector3(), rB = new THREE.Vector3(), rM = new THREE.Vector3(), rP = new THREE.Vector3();
+function roomNode(rc,to,out){ const R = (HALO.r[2]+HALO.spread*.5)*rc.halo.size*rc.g.scale.x;
+  return out.copy(to.g.position).sub(rc.g.position).normalize().multiplyScalar(R).add(rc.g.position); }
+const bez = (u,out) => { const k = 1-u; return out.set(k*k*rA.x+2*k*u*rM.x+u*u*rB.x, k*k*rA.y+2*k*u*rM.y+u*u*rB.y, k*k*rA.z+2*k*u*rM.z+u*u*rB.z); };
+function updateRoomLinks(t){
+  const bp = rBeads.geometry.attributes.position.array, bc = rBeads.geometry.attributes.color.array;
+  const fp = rFlow.geometry.attributes.position.array, fc = rFlow.geometry.attributes.color.array;
+  let nb = 0, nf = 0; const selIdx = CURRENCIES.indexOf(state.currency);
+  roomPairs.forEach(([ia,ib],pi)=>{
+    const involvesSel = ia===selIdx || ib===selIdx;
+    if (!state.allLinks && !involvesSel) return;
+    const from = involvesSel ? roomCoins[selIdx] : roomCoins[ia], to = involvesSel ? roomCoins[ia===selIdx?ib:ia] : roomCoins[ib];
+    roomNode(from,to,rA); roomNode(to,from,rB);
+    const dist = rA.distanceTo(rB), peak = RLINK.arc+RLINK.arcPer*dist;
+    rM.addVectors(rA,rB).multiplyScalar(.5); rM.y += peak*2;               // control point: the arc's top sits `peak` above the midpoint
+    const len = dist+peak*1.3;
+    const gap = to.z-from.z, gapN = Math.min(1,Math.abs(gap)/2);
+    if (involvesSel) tmpCol.copy(from.z>=to.z ? UP : DOWN); else tmpCol.copy(PINK);
+    const dim = involvesSel ? 1 : .45;
+    const ca = cotOf(from.cur), cb = cotOf(to.cur);
+    const cotGap = ca && cb ? Math.min(1,Math.abs(ca.groups[1].pctOi-cb.groups[1].pctOi)/60) : 0;
+    const breath = .6+(.12+.3*cotGap)*Math.sin(t*(1.2+cotGap*1.4)+pi);
+    const n = Math.min(RLINK.maxBeads,Math.max(8,Math.floor(len/RLINK.bead)));
+    for (let j=0;j<=n;j++){ const s = j/n; bez(s,rP);
+      bp[nb*3] = rP.x; bp[nb*3+1] = rP.y; bp[nb*3+2] = rP.z;
+      const dirS = gap>=0 ? s : 1-s, packet = Math.pow(.5+.5*Math.sin(dirS*22-t*(2.5+4*gapN)),6);
+      const a = RLINK.glow*breath*dim*(.45+.35*packet)*(.4+.6*Math.sin(Math.PI*s));
+      bc[nb*3] = tmpCol.r*a; bc[nb*3+1] = tmpCol.g*a; bc[nb*3+2] = tmpCol.b*a; nb++; }
+    const nFlow = Math.round(6+(RLINK.maxFlow-6)*gapN), v = .12+.28*gapN;
+    for (let j=0;j<nFlow;j++){ let u = ((j/nFlow)+t*v/Math.max(len,.01))%1; if (gap<0) u = 1-u; bez(u,rP);
+      fp[nf*3] = rP.x; fp[nf*3+1] = rP.y; fp[nf*3+2] = rP.z;
+      const a = Math.sin(Math.PI*u)*RLINK.flowGlow*dim*(.7+.3*breath);
+      fc[nf*3] = Math.min(1,tmpCol.r*a+.15*a); fc[nf*3+1] = Math.min(1,tmpCol.g*a+.15*a); fc[nf*3+2] = Math.min(1,tmpCol.b*a+.15*a); nf++; }
+    for (const N of [rA,rB]){ fp[nf*3] = N.x; fp[nf*3+1] = N.y; fp[nf*3+2] = N.z;            // connector balls on the halos
+      fc[nf*3] = Math.min(1,.5*dim+tmpCol.r*.4); fc[nf*3+1] = Math.min(1,.5*dim+tmpCol.g*.4); fc[nf*3+2] = Math.min(1,.5*dim+tmpCol.b*.4); nf++; }
+  });
+  rBeads.geometry.setDrawRange(0,nb); rFlow.geometry.setDrawRange(0,nf);
+  for (const g of [rBeads.geometry,rFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
+}
 let roomLast = null;
 function updateRoomOrbit(t){
   const dt = Math.min(.1,Math.max(0,t-(roomLast ?? t))); roomLast = t;
@@ -1053,6 +1122,8 @@ function updateRoomOrbit(t){
     updateHalo(rc,t,dt,rc.z>=0?UP:DOWN);
     const v = saved[rc.cur] || (saved[rc.cur] = [0,0,0]); v[0] = rc.r; v[1] = rc.a; v[2] = rc.dy;
   }
+  updateRoomLinks(t);
+  if (state.roomMin && Math.floor(t*2)!==updateRoomOrbit.tick) { updateRoomOrbit.tick = Math.floor(t*2); widgetP.dirty = true; }   // widget's z readout
 }
 
 // ---------------------------------------------------------------- 3D coins (assets/coins/<CODE>.glb, KTX2 + meshopt)
@@ -1460,7 +1531,7 @@ function gridGrabEnd(s){
 let tablePlaneLock = false;
 function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
-  if (dr.kind==='roomCoin') { roomRelease(dr); return; }
+  if (dr.kind==='roomCoin') { dr.src = s; roomRelease(dr); return; }
   if (dr.kind==='stick') { stickP.dirty = true; return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
@@ -1508,7 +1579,7 @@ applyDeskToggles(); if (state.dioOnTable) dioToTable();
 
 // ---------------------------------------------------------------- state changes
 function setHorizon(h){ if (!data[h]) return; state.horizon = h; rebuildLoop(); [horizonP,timelineP,dashP].forEach(p=>p.dirty=true); }
-function setCurrency(c){ state.currency = c; dashP.dirty = true; }
+function setCurrency(c){ state.currency = c; dashP.dirty = true; widgetP.dirty = true; }
 
 // ---------------------------------------------------------------- 02 · window views: Diorama · Manifold · Ribbon · COT Pawns · Rates Membrane
 // five tabs at the window's top-left; the pink pill slides to the chosen one. Only Diorama and Manifold are built so far.
@@ -1891,7 +1962,7 @@ function updateXRInput(){
     if (!best) for (const p of panels) {
       if (!p.mesh.visible || !p.mesh.parent.visible || !p.regions.length || p.name==='toast') continue;
       p.mesh.worldToLocal(local.copy(tipPos));
-      const d = local.z*(p.mesh.parent===board||p.mesh.parent===fixed ? boardRoot.scale.x : 1), lx = local.x/S+p.w/2, ly = p.h/2-(local.y/S);
+      const d = local.z*(p.mesh.parent.parent===boardRoot ? boardRoot.scale.x : 1), lx = local.x/S+p.w/2, ly = p.h/2-(local.y/S);
       if (lx<0||ly<0||lx>p.w||ly>p.h||d>.05||d<-.03) continue;
       const region = p.regions.findLast(r=>lx>=r.x&&lx<=r.x+r.w&&ly>=r.y&&ly<=r.y+r.h);
       if (region) { best = {panel:p,region,touch:d<.008}; break; }
@@ -1944,6 +2015,8 @@ renderer.setAnimationLoop((now,frame)=>{
   updateDesk(t,frame);
   updateRoomOrbit(t);
   // diorama in the window only while the board hides its box; on the table it is always there and the window shows the 2D view
+  const folded = state.roomOn && state.roomMin;
+  board.visible = !state.hidden && !folded; fixed.visible = !folded; widgetGroup.visible = folded;
   const wSeen = windowSeen(), seen = state.dioOnTable || wSeen, maniView = state.winView==='manifold';
   winBox.visible = wSeen && (!state.dioOnTable || maniView); winTank.visible = !maniView; viewPlane.visible = state.dioOnTable && !maniView;
   dio.visible = !state.hidden && seen && (state.dioOnTable || !maniView); deskItem.visible = state.dioOnTable && !state.hidden;
