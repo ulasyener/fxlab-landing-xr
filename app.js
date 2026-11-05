@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '35';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '36';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -44,6 +44,7 @@ const state = {
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
   winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
+  gridCols: 8, gridRows: 4, gridOff: false,     // table grid size in 25 cm cells (pulled from its edges / corners) · whole table grid switched off
   roomOn: false, roomPaused: false, roomCoins: null, roomMin: false,   // roomMin: main screen folded into the small widget   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
@@ -376,10 +377,11 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
   ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin,gridCols:state.gridCols,gridRows:state.gridRows,gridOff:state.gridOff})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
+  ['grid','grid-nine','Table grid on / off',()=>setGridOff(!state.gridOff)],
   ['room','planet','Coins around you',()=>setRoom(!state.roomOn)],
   ['stick','joystick','Move the landing',()=>{ state.stick = !state.stick; stickP.mesh.visible = turnP.mesh.visible = state.stick; toast(state.stick?(state.stickTurn?STICK_TIP.turn:STICK_TIP.move):'Joystick hidden'); }],
   ['exit','x-circle','Exit MR',()=>{ const s = renderer.xr.getSession(); s ? s.end() : toast('Not in MR'); }],
@@ -389,7 +391,7 @@ const barP = panel({name:'bottom bar',x:410,y:860,w:700,h:104.6,margin:20,parent
   rr(ctx,0,0,700,104.6,52.3); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
   rr(ctx,0,0,700,104.6,52.3); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
   const step = (700-2*23.85-68.47)/(BAR.length-1);                     // equal spacing (A), whatever the number of buttons
-  BAR.forEach(([id,ic,,fn],i)=>{ const on = (id==='stick'&&state.stick) || (id==='room'&&state.roomOn);
+  BAR.forEach(([id,ic,,fn],i)=>{ const on = (id==='stick'&&state.stick) || (id==='room'&&state.roomOn) || (id==='grid'&&!state.gridOff);
     circleButton(ctx,p,id,23.85+34.24+i*step,18.08+34.24,68.47,on?ic+'-fill':ic,fn,{iconSize:28.8,iconColor:on?C.pink:C.ink}); });
 }});
 // room orbit pause / play: one small button right above the room button, only while the coins are in the room
@@ -403,15 +405,17 @@ function roomTogglePause(){ state.roomPaused = !state.roomPaused; pauseP.dirty =
   toast(state.roomPaused?'Orbits stopped · arrange the coins, then play':'Orbits running'); }
 // main screen folded: a small widget where the bottom bar was — pause / play and open the screen again
 const widgetGroup = new THREE.Group(); widgetGroup.name = 'room widget'; widgetGroup.visible = false; boardRoot.add(widgetGroup);
-const widgetP = panel({name:'room widget',x:BW/2-150,y:870,w:300,h:84,margin:20,parent:widgetGroup,z:.006,draw(ctx,p){
+const WG = 364;                                                          // widget width: fxlab + z, then grid · pause · open
+const widgetP = panel({name:'room widget',x:BW/2-WG/2,y:870,w:WG,h:84,margin:20,parent:widgetGroup,z:.006,draw(ctx,p){
   ctx.save(); ctx.shadowColor = '#0b0a18'; ctx.shadowBlur = 20; ctx.shadowOffsetY = 5;
-  rr(ctx,0,0,300,84,42); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
-  rr(ctx,0,0,300,84,42); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+  rr(ctx,0,0,WG,84,42); ctx.fillStyle = '#262346'; ctx.fill(); ctx.restore();
+  rr(ctx,0,0,WG,84,42); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
   text(ctx,'fxlab',30,38,{font:'800 22px Manrope',color:C.pink});
   const rc = roomCoins.find(c=>c.cur===state.currency), z = rc ? rc.z : 0;
   text(ctx,`${state.currency} ${z>=0?'+':'−'}${Math.abs(z).toFixed(2)} z`,30,60,{font:'400 13px "Kode Mono"',color:C.muted});
-  circleButton(ctx,p,'pause',300-42-64,42,56,state.roomPaused?'play':'pause',roomTogglePause,{iconSize:24,iconColor:state.roomPaused?C.pink:C.ink});
-  circleButton(ctx,p,'open',300-42,42,56,'arrows-out-simple',()=>setRoomMin(false),{iconSize:24});
+  circleButton(ctx,p,'grid',WG-42-128,42,56,state.gridOff?'grid-nine':'grid-nine-fill',()=>setGridOff(!state.gridOff),{iconSize:24,iconColor:state.gridOff?C.ink:C.pink});
+  circleButton(ctx,p,'pause',WG-42-64,42,56,state.roomPaused?'play':'pause',roomTogglePause,{iconSize:24,iconColor:state.roomPaused?C.pink:C.ink});
+  circleButton(ctx,p,'open',WG-42,42,56,'arrows-out-simple',()=>setRoomMin(false),{iconSize:24});
 }});
 function setRoomMin(on){ state.roomMin = on; widgetP.dirty = pauseP.dirty = true; }
 // ---- joystick: move the landing like a mobile FPS thumbstick (right of the bottom bar, shown with the joystick button)
@@ -1192,32 +1196,36 @@ for (const m of marbles) {
 }
 
 // ---------------------------------------------------------------- 3D table workspace: wireframe grid, room scan, diorama on the table
-// Grid: 2 m × 1 m in real size, fixed 25 cm cells (8 × 4). Origin at the grid centre on the table surface,
-// x along the 2 m side, +z toward the user, y up. Each visualisation arrives one cell in size (1x) and
-// scales from its corner nodes in whole-cell steps.
-const DESK = {cols:8, rows:4, cell:.25, maxN:4, lineA:.16, borderA:.42, crossA:.5, glowR:.2, tableH:.74, ahead:.72, belowBoard:.08};   // belowBoard: without a detected table the grid starts this far under the window's bottom edge
-const DESK_W = DESK.cols*DESK.cell, DESK_D = DESK.rows*DESK.cell;
+// Grid: fixed 25 cm cells, 2 m × 1 m (8 × 4) by default; the user pulls its edges / corners to make it any size in whole cells.
+// Origin at the grid centre on the table surface, x along the long side, +z toward the user, y up. Each visualisation
+// arrives one cell in size (1x) and scales from its corner nodes in whole-cell steps.
+const DESK = {cols:8, rows:4, cell:.25, maxN:4, lineA:.16, borderA:.42, crossA:.5, glowR:.2, tableH:.74, ahead:.72, belowBoard:.08,   // belowBoard: without a detected table the grid starts this far under the window's bottom edge
+  minC:2, maxCols:16, maxRows:12};                                       // grid size limits in cells: 50 cm × 50 cm … 4 m × 3 m
+DESK.cols = Math.min(DESK.maxCols,Math.max(DESK.minC,Math.round(state.gridCols)||8)); DESK.rows = Math.min(DESK.maxRows,Math.max(DESK.minC,Math.round(state.gridRows)||4));
+let DESK_W = DESK.cols*DESK.cell, DESK_D = DESK.rows*DESK.cell;
 const deskGrid = new THREE.Group(); deskGrid.name = 'table grid'; scene.add(deskGrid);
 const deskLines = new THREE.Group(); deskGrid.add(deskLines);      // what the GRID toggle hides
 const gridUniforms = {uHand0:{value:new THREE.Vector3(0,99,0)}, uHand1:{value:new THREE.Vector3(0,99,0)}, uTime:{value:0},
-  uBase:{value:new THREE.Color('#8fb0ff')}, uHot:{value:new THREE.Color(C.pink)}};
+  uBase:{value:new THREE.Color('#8fb0ff')}, uHot:{value:new THREE.Color(C.pink)}, uHalf:{value:new THREE.Vector2(DESK_W/2,DESK_D/2)}};
 function gridMaterial(){
   return new THREE.ShaderMaterial({
     uniforms:gridUniforms, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false,
     vertexShader:`attribute float aA; varying float vA; varying vec3 vP;
       void main(){ vA = aA; vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-    fragmentShader:`uniform vec3 uHand0; uniform vec3 uHand1; uniform vec3 uBase; uniform vec3 uHot; uniform float uTime;
+    fragmentShader:`uniform vec3 uHand0; uniform vec3 uHand1; uniform vec3 uBase; uniform vec3 uHot; uniform float uTime; uniform vec2 uHalf;
       varying float vA; varying vec3 vP;
       void main(){
         float d = min(distance(vP,uHand0),distance(vP,uHand1));
         float g = smoothstep(${DESK.glowR.toFixed(3)},0.,d);                // lines light up near the hand
-        float edge = smoothstep(0.,.12,min(${(DESK_W/2).toFixed(3)}-abs(vP.x),${(DESK_D/2).toFixed(3)}-abs(vP.z))+.06);
+        float edge = smoothstep(0.,.12,min(uHalf.x-abs(vP.x),uHalf.y-abs(vP.z))+.06);
         float a = vA*(.85+.15*sin(uTime*1.3+vP.x*3.1+vP.z*2.3))*edge + g*.55;
         gl_FragColor = vec4(mix(uBase,uHot,g)*a,1.);
       }`,
   });
 }
-{ const pos = [], aA = [], seg = (x0,z0,x1,z1,a) => { pos.push(x0,0,z0,x1,0,z1); aA.push(a,a); };
+const gridLines = new THREE.LineSegments(new THREE.BufferGeometry(),gridMaterial()); gridLines.position.y = .001; gridLines.frustumCulled = false; deskLines.add(gridLines);
+function buildGridLines(){
+  const pos = [], aA = [], seg = (x0,z0,x1,z1,a) => { pos.push(x0,0,z0,x1,0,z1); aA.push(a,a); };
   const hx = DESK_W/2, hz = DESK_D/2;
   for (let i=1;i<DESK.cols;i++) { const x = -hx+i*DESK.cell; seg(x,-hz,x,hz,DESK.lineA); }
   for (let j=1;j<DESK.rows;j++) { const z = -hz+j*DESK.cell; seg(-hx,z,hx,z,DESK.lineA); }
@@ -1228,8 +1236,9 @@ function gridMaterial(){
     seg(x-k,z,x+k,z,DESK.crossA); seg(x,z-k,x,z+k,DESK.crossA); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('aA',new THREE.Float32BufferAttribute(aA,1));
-  const lines = new THREE.LineSegments(g,gridMaterial()); lines.position.y = .001; lines.frustumCulled = false; deskLines.add(lines);
+  gridLines.geometry.dispose(); gridLines.geometry = g; gridUniforms.uHalf.value.set(hx,hz);
 }
+buildGridLines();
 // target cells while something is carried
 const dropFill = new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:C.pink,transparent:true,opacity:.1,
   depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false}));
@@ -1375,8 +1384,15 @@ function liftGrid(d){
   deskGrid.position.y += v-(state.gridLift||0); state.gridLift = v; relinkGrid();
   toast(v===0?'Grid at table height':`Grid ${v>0?'+':'−'}${Math.round(Math.abs(v)*100)} cm`);
 }
-deskCtlP.mesh.position.set(-DESK_W/2+.21,.02,DESK_D/2+.05); deskCtlP.mesh.rotation.x = -1.05;
-function applyDeskToggles(){ deskLines.visible = state.grid!==false; roomGroup.visible = state.room!==false; }
+deskCtlP.mesh.rotation.x = -1.05;
+// GRID / ROOM on the strip hide the lines / the room scan; the grid button (bottom bar, room widget) switches the whole table grid
+// off — lines, nodes, strip, edge handles. Visualisations standing on the table stay where they are.
+function applyDeskToggles(){
+  deskLines.visible = state.grid!==false && !state.gridOff; roomGroup.visible = state.room!==false;
+  gridHandles.visible = deskCtlP.mesh.visible = !state.gridOff;
+}
+function setGridOff(off){ state.gridOff = off; applyDeskToggles(); barP.dirty = widgetP.dirty = true;
+  toast(off?'Table grid off':'Table grid on'); }
 
 // room scan: Quest's scene mesh (mesh-detection) or, without it, detected plane outlines — thin light edges
 const roomGroup = new THREE.Group(); roomGroup.name = 'room wireframe'; scene.add(roomGroup);
@@ -1463,12 +1479,75 @@ function setGridLinked(on){ state.gridLinked = on; relinkGrid(); deskCtlP.dirty 
   toast(on?'Table linked to the window · they move together':'Table apart · pinch the grid edge to move it'); }
 const Y_AXIS = new THREE.Vector3(0,1,0);
 // grid edge: an invisible frame around the grid to pinch and carry the table on its own
-const gridFrame = [];
-{ const F = .08, mat = new THREE.MeshBasicMaterial({visible:false});
-  [[DESK_W+2*F,F,0,-(DESK_D+F)/2],[DESK_W+2*F,F,0,(DESK_D+F)/2],[F,DESK_D,-(DESK_W+F)/2,0],[F,DESK_D,(DESK_W+F)/2,0]].forEach(([w,d,x,z])=>{
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w,d),mat); m.rotation.x = -Math.PI/2; m.position.set(x,.004,z);
-    m.userData.kind = 'gridMove'; deskGrid.add(m); gridFrame.push(m); }); }
+const gridFrame = [], GF = .08;
+{ const mat = new THREE.MeshBasicMaterial({visible:false}), geo = new THREE.PlaneGeometry(1,1);
+  for (let k=0;k<4;k++) { const m = new THREE.Mesh(geo,mat); m.rotation.x = -Math.PI/2; m.userData.kind = 'gridMove'; deskGrid.add(m); gridFrame.push(m); } }
+// size handles: a node on each corner and on the middle of each edge — pinch and pull, the grid grows / shrinks
+// in whole 25 cm cells while the opposite edge stays put
+const gridHandles = new THREE.Group(); gridHandles.name = 'grid size handles'; deskGrid.add(gridHandles);
+const sizeNodes = [[-1,-1],[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0]].map(([sx,sz])=>{
+  const corner = sx && sz, r = corner ? .011 : .008;
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(r,16,10),new THREE.MeshBasicMaterial({color:'#fff3ff',toneMapped:false}));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:C.pink,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+  glow.scale.setScalar(corner?.06:.045); ball.add(glow);
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(.035,10,8),new THREE.MeshBasicMaterial({visible:false}));
+  hit.userData.kind = 'gridResize'; hit.userData.side = [sx,sz]; ball.add(hit);
+  gridHandles.add(ball); return {ball,glow,hit,sx,sz};
+});
+function layoutGridChrome(){
+  const hx = DESK_W/2, hz = DESK_D/2;
+  [[DESK_W+2*GF,GF,0,-hz-GF/2],[DESK_W+2*GF,GF,0,hz+GF/2],[GF,DESK_D,-hx-GF/2,0],[GF,DESK_D,hx+GF/2,0]].forEach(([w,d,x,z],k)=>{
+    const m = gridFrame[k]; m.scale.set(w,d,1); m.position.set(x,.004,z); });
+  for (const n of sizeNodes) n.ball.position.set(n.sx*hx,.008,n.sz*hz);
+  deskCtlP.mesh.position.set(-hx+.26,.02,hz+.10);                       // a little out from the near edge: clear of the size nodes
+}
+layoutGridChrome();
 placeGrid();
+
+// ---- grid size: pull an edge / corner node. Whole cells; the opposite edge stays put in the room, and the visualisations
+// standing on the table stay where they are (an edge can't be pulled across them).
+function tableItems(){ const l = [];
+  if (state.dioOnTable) l.push({k:'dio',i:state.dioI,j:state.dioJ,n:state.dioN});
+  if (state.maniOnTable) l.push({k:'mani',i:state.maniI,j:state.maniJ,n:MANI_T.n});
+  return l; }
+function gridResizeStart(s,hit){
+  deskGrid.updateMatrixWorld(); const [sx,sz] = hit.object.userData.side; tablePlaneLock = true;   // no re-placing on a found table mid-pull
+  s.drag = {kind:'gridResize',sx,sz,M:deskGrid.matrixWorld.clone(),Mi:deskGrid.matrixWorld.clone().invert(),
+    c0:DESK.cols,r0:DESK.rows,x0:-DESK_W/2,x1:DESK_W/2,z0:-DESK_D/2,z1:DESK_D/2,items:tableItems()};
+}
+function gridResizeUpdate(s,o,d){
+  const dr = s.drag, c = DESK.cell;
+  rO.copy(o).applyMatrix4(dr.Mi); rD.copy(d).transformDirection(dr.Mi);   // in the grid's space as it was when the pull began
+  if (Math.abs(rD.y)<1e-4) return; const t = -rO.y/rD.y; if (t<0) return;
+  const px = rO.x+rD.x*t, pz = rO.z+rD.z*t;
+  // smallest size that keeps every visualisation on the table whole
+  let minC = DESK.minC, minR = DESK.minC;
+  for (const it of dr.items) {
+    minC = Math.max(minC, dr.sx>0 ? it.i+it.n : dr.sx<0 ? dr.c0-it.i : 0);
+    minR = Math.max(minR, dr.sz>0 ? it.j+it.n : dr.sz<0 ? dr.r0-it.j : 0); }
+  let cols = dr.c0, rows = dr.r0;
+  if (dr.sx>0) cols = Math.round((px-dr.x0)/c); else if (dr.sx<0) cols = Math.round((dr.x1-px)/c);
+  if (dr.sz>0) rows = Math.round((pz-dr.z0)/c); else if (dr.sz<0) rows = Math.round((dr.z1-pz)/c);
+  cols = Math.min(DESK.maxCols,Math.max(minC,cols)); rows = Math.min(DESK.maxRows,Math.max(minR,rows));
+  if (cols===DESK.cols && rows===DESK.rows) return;
+  const cx = dr.sx>0 ? dr.x0+cols*c/2 : dr.sx<0 ? dr.x1-cols*c/2 : 0;
+  const cz = dr.sz>0 ? dr.z0+rows*c/2 : dr.sz<0 ? dr.z1-rows*c/2 : 0;
+  deskGrid.position.set(cx,0,cz).applyMatrix4(dr.M);                    // the turn stays, the centre slides
+  DESK.cols = cols; DESK.rows = rows;
+  const di = dr.sx<0 ? cols-dr.c0 : 0, dj = dr.sz<0 ? rows-dr.r0 : 0;   // pulling the left / far edge shifts the cell numbers under the items
+  for (const it of dr.items) {
+    if (it.k==='dio') { state.dioI = it.i+di; state.dioJ = it.j+dj; }
+    else { state.maniI = it.i+di; state.maniJ = it.j+dj; } }
+  rebuildGrid();
+  toast(`${cols} × ${rows} · ${(cols*c).toFixed(2)} m × ${(rows*c).toFixed(2)} m`,1400);
+}
+function rebuildGrid(){
+  DESK_W = DESK.cols*DESK.cell; DESK_D = DESK.rows*DESK.cell; state.gridCols = DESK.cols; state.gridRows = DESK.rows;
+  buildGridLines(); layoutGridChrome();
+  if (state.dioOnTable) { layoutDeskItem(state.dioI,state.dioJ,state.dioN,false); deskItem.position.copy(deskItem.userData.target); }
+  if (state.maniOnTable) layoutManiDesk();
+  relinkGrid();
+}
 
 // carrying: ray → grid plane → cells
 const invGrid = new THREE.Matrix4(), rO = new THREE.Vector3(), rD = new THREE.Vector3();
@@ -1482,6 +1561,7 @@ const clampI = (v,n,max) => Math.max(0,Math.min(max-n,v));
 function dragUpdate(s,o,d){
   if (s.drag.kind==='stick') { stickUpdate(s,o,d); return; }
   if (s.drag.kind==='maniSpin') { maniSpinUpdate(s,o,d); return; }
+  if (s.drag.kind==='gridResize') { gridResizeUpdate(s,o,d); return; }
   const p = rayOnGrid(o,d); if (!p) return;
   const dr = s.drag;
   if (dr.kind==='maniMove') { const n = MANI_T.n;                          // the manifold follows the hand cell by cell
@@ -1557,6 +1637,7 @@ function pinchScaleUpdate(s){
 }
 function dragStart(s,hit){
   if (hit.kind==='gridMove') { gridGrabStart(s); return; }
+  if (hit.kind==='gridResize') { gridResizeStart(s,hit); return; }
   if (hit.kind==='dioRotate') { const p = hit.point.clone().applyMatrix4(invGrid.copy(deskGrid.matrixWorld).invert());
     s.drag = {kind:'dioRotate',a0:ringAngle(p),yaw0:state.dioYaw||0,q0:state.dioQ?new THREE.Quaternion().fromArray(state.dioQ):null}; return; }
   if (hit.kind==='dioMove') s.drag = {kind:'dioMove',i:state.dioI,j:state.dioJ,n:state.dioN};
@@ -1581,6 +1662,7 @@ function dragEnd(s){
   if (dr.kind==='stick') { stickP.dirty = true; return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
+  if (dr.kind==='gridResize') { gridPlacedAt = 0; tablePlaneLock = true; return; }   // a resized grid stays where the user left it
   state.dioI = dr.i; state.dioJ = dr.j; state.dioN = dr.n; layoutDeskItem(dr.i,dr.j,dr.n,false);
 }
 const handLocal = new THREE.Vector3();
@@ -1620,6 +1702,7 @@ function updateDesk(t,frame){
   followBoard();
   const yaw = state.dioYaw||0; knob.position.set(Math.sin(yaw)*RING.r,0,Math.cos(yaw)*RING.r);
   for (const c of corners) c.glow.material.opacity = .55+.35*Math.sin(t*3+c.sx+c.sz*2);
+  if (gridHandles.visible) for (const n of sizeNodes) n.glow.material.opacity = .45+.3*Math.sin(t*2.2+n.sx*1.3+n.sz*2.1);
 }
 applyDeskToggles(); if (state.dioOnTable) dioToTable();
 
@@ -1893,7 +1976,7 @@ const raycaster = new THREE.Raycaster();
 const holePanels = new Set(['board','drop CHARTS','diorama card']);
 function targets(){ const list = []; for (const p of panels) if (p.mesh.visible && p.mesh.parent.visible) list.push(p.mesh);
   if (state.dioOnTable && dio.visible) { list.push(itemPad,rotRing.userData.hit); for (const c of corners) list.push(c.hit); }
-  if (deskGrid.visible) list.push(...gridFrame);
+  if (deskGrid.visible && !state.gridOff) { list.push(...gridFrame); for (const n of sizeNodes) list.push(n.hit); }
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit);
   if (orbitRoot.visible && state.roomOn) for (const rc of roomCoins) if (!rc.held) list.push(rc.hit);
   if (mani.visible && (board.visible || state.maniOnTable) && mani.userData.grab) { list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit); if (state.maniOnTable) list.push(...maniPads); }
@@ -1928,7 +2011,7 @@ function press(source,hit){
   if (roomHandGrab(source)) return;                                      // pinch right at a coin in the room
   if (source.hand && maniScaleStart(source)) return;                      // second hand while the first turns the manifold
   if (source.hand && state.dioOnTable && !state.hidden && pinchScaleStart(source)) return;    // second hand while the first holds
-  if ((hit?.kind==='dioScale' || hit?.kind==='dioRotate' || hit?.kind==='gridMove') && hit.distance<.15) { dragStart(source,hit); return; }   // a handle right at the fingers wins over the body grab
+  if ((hit?.kind==='dioScale' || hit?.kind==='dioRotate' || hit?.kind==='gridMove' || hit?.kind==='gridResize') && hit.distance<.15) { dragStart(source,hit); return; }   // a handle right at the fingers wins over the body grab
   if (source.hand && state.dioOnTable && !state.hidden && handGrabStart(source)) return;
   if (!hit) return;
   if (hit.roomCoin) { roomRayGrab(source,hit); return; }
