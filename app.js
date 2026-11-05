@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '33';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '34';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -938,7 +938,7 @@ const COIN = {dia:.04, spin:.6, env:.2, rough:2.2, metal:.8, tint:'#d6c3ad'};   
 // orbit speed ← strength (latest observation of the chosen horizon): stronger = faster, weaker = slower, all slow · pause stops every orbit
 const ROOM = {coin:.08, r0:.7, lane:.12, rMin:.35, rMax:3.2, dy:-.15, dyMin:-1.2, dyMax:.8, w:.05, zSpan:2.2, ease:.6,
               bob:.008, follow:2.5, grabNear:.09, push:4, appear:.8,
-              haloRim:.55,                                                      // room halo = only the glowing glass-marble sphere (no particles), kept soft so it does not tire the eye
+              haloRim:.85, haloLight:.45,                                       // room halo = only the glowing glass-marble sphere (no particles) · brighter, and lifted toward white so it reads light, not dark
               coinEnv:.07, coinMetal:.55, coinTint:.8,                          // matter, darker coin copies (less shine)
               snap:12, throwMin:.55, throwGain:1.8, throwMax:4, drag:1.6, dragY:5, settle:.12, spinBoost:6};   // grab glides into the fingers · flick: release speed m/s → flight, slows down, takes the orbit where it stops   // coin Ø m · default lanes · speed: w rad/s at zero, ×2 per +zSpan, ÷2 per −zSpan
 function crispTexture(){ const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');   // hard-edged dot, no glow falloff
@@ -1126,7 +1126,7 @@ function updateRoomLinks(t){
 }
 function updateRoomRim(rc,t){                                                     // glass-marble glow only (no particles) · selected one a little brighter
   const h = rc.halo, w = 2*Math.PI/HALO.period, beat = 1-HALO.breath+HALO.breath*(.5+.5*Math.sin(t*w+rc.phase));
-  h.rim.material.uniforms.uColor.value.copy(rc.z>=0?UP:DOWN).lerp(PINK,.2);
+  h.rim.material.uniforms.uColor.value.copy(rc.z>=0?UP:DOWN).lerp(PINK,.2).lerp(WHITE,ROOM.haloLight);
   h.rim.material.uniforms.uStrength.value = HALO.rim*h.bright*beat*ROOM.haloRim*(rc.cur===state.currency?1.35:1);
 }
 let roomLast = null;
