@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '42';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '43';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -43,13 +43,14 @@ const state = {
   dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
   winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null, maniRoom: false,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
-  ribbonYaw: 0, ribbonTilt: .12, ribbonRoom: false, ribbonFrame: null,   // data sculpture: hand turn · selected observation · expanded around the user
+  ribbonYaw: 0, ribbonTilt: .12, ribbonRoom: false, ribbonFrame: null, ribbonMode: 'read',   // Data Arbor: read · draw paths · sculpt linked nodes · expand around the user
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
   gridCols: 8, gridRows: 4, gridOff: false, gridFloor: false, gridTableY: null, gridBlocks: {},   // … · grid lowered to the floor (and its table height to go back to) · raised cells {'i,j': height m}     // table grid size in 25 cm cells (pulled from its edges / corners) · whole table grid switched off
   roomOn: false, roomPaused: false, roomCoins: null, roomMin: false,   // roomMin: main screen folded into the small widget   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
 if (!data[state.horizon]) state.horizon = HORIZONS.map(h=>h.id).find(h=>data[h]);
+if (!['read','draw','sculpt'].includes(state.ribbonMode)) state.ribbonMode='read';
 
 // ---------------------------------------------------------------- fonts & icons
 await Promise.all(['500 20px Manrope','700 20px Manrope','800 20px Manrope','400 20px "Kode Mono"','600 20px "Kode Mono"'].map(f=>document.fonts.load(f)));
@@ -247,7 +248,7 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
   g.addColorStop(0,'#2b2852'); g.addColorStop(.55,'#201d40'); g.addColorStop(1,'#16152c');
   ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
   const dioView = state.winView==='diorama', maniView = state.winView==='manifold', ribbonView = state.winView==='ribbon';
-  text(ctx,dioView?'DIORAMA':maniView?'MANIFOLD':'DATA SCULPTURE',25,32,{font:'800 14px Manrope',color:C.muted,ls:'.4px'});
+  text(ctx,dioView?'DIORAMA':maniView?'MANIFOLD':'DATA ARBOR',25,32,{font:'800 14px Manrope',color:C.muted,ls:'.4px'});
   text(ctx,ribbonView&&state.ribbonRoom?'AROUND YOU':state.dioOnTable&&dioView?'2D':'3D',614,32,{font:'600 14px "Kode Mono"',color:C.muted,align:'right'});
   // while the diorama is on the table the window shows it flat: top ↔ front
   if (state.dioOnTable && dioView) { const x = 118, y = 14, w = 152, h = 34;
@@ -256,6 +257,13 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
       if (on) { ctx.save(); ctx.shadowColor = C.pink; ctx.shadowBlur = 12; rr(ctx,sx,y+3,73,h-6,14); ctx.fillStyle = C.pink; ctx.fill(); ctx.restore(); }
       text(ctx,label,sx+36.5,y+h/2+1,{font:'800 12px Manrope',color:on?C.dark:(hot?C.pink:C.ink),align:'center',ls:'.4px'});
       p.region('v2'+id,sx,y-8,73,h+16,()=>{ state.view2D = id; p.dirty = true; viewDirty = true; }); }); }
+  // Data Arbor is deliberately three tools, not a dense editor: inspect, grow a branch, or reshape connected nodes.
+  if (ribbonView) { const x=118,y=14,w=264,h=34, seg=w/3;
+    rr(ctx,x,y,w,h,17); ctx.fillStyle=C.card; ctx.fill(); ctx.lineWidth=1.5; ctx.strokeStyle='#4b4470'; ctx.stroke();
+    [['read','READ'],['draw','DRAW'],['sculpt','SCULPT']].forEach(([id,label],k)=>{ const sx=x+k*seg,on=state.ribbonMode===id,hot=p.hover==='rmode'+id;
+      if(on){ ctx.save(); ctx.shadowColor=C.pink; ctx.shadowBlur=12; rr(ctx,sx+3,y+3,seg-6,h-6,14); ctx.fillStyle=C.pink; ctx.fill(); ctx.restore(); }
+      text(ctx,label,sx+seg/2,y+h/2+1,{font:'800 11px Manrope',color:on?C.dark:(hot?C.pink:C.ink),align:'center',ls:'.4px'});
+      p.region('rmode'+id,sx,y-8,seg,h+16,()=>setRibbonMode(id)); }); }
   // links toggle: selected coin only ↔ all pairs (neural view)
   if (dioView) { const x = 452, y = 14, w = 128, h = 34, on = state.allLinks, hot = p.hover==='links';
     ctx.save(); if (on||hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = on?16:10; }
@@ -387,8 +395,8 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
-  ['house','house','Default layout',()=>{ if(state.ribbonRoom)ribbonFromRoom(); state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; state.ribbonYaw = 0; state.ribbonTilt = .12; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,ribbonYaw:state.ribbonYaw,ribbonTilt:state.ribbonTilt,ribbonFrame:state.ribbonFrame,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin,gridCols:state.gridCols,gridRows:state.gridRows,gridOff:state.gridOff,gridFloor:state.gridFloor,gridTableY:state.gridTableY,gridBlocks:state.gridBlocks})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['house','house','Default layout',()=>{ if(state.ribbonRoom)ribbonFromRoom(); state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; state.ribbonYaw = 0; state.ribbonTilt = .12; state.ribbonMode='read'; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); dioCardP.dirty=ribbonCapP.dirty=true; toast('Back to the default layout'); }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,ribbonYaw:state.ribbonYaw,ribbonTilt:state.ribbonTilt,ribbonFrame:state.ribbonFrame,ribbonMode:state.ribbonMode,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin,gridCols:state.gridCols,gridRows:state.gridRows,gridOff:state.gridOff,gridFloor:state.gridFloor,gridTableY:state.gridTableY,gridBlocks:state.gridBlocks})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -1693,6 +1701,8 @@ function dragUpdate(s,o,d){
   if (s.drag.kind==='stick') { stickUpdate(s,o,d); return; }
   if (s.drag.kind==='maniSpin') { maniSpinUpdate(s,o,d); return; }
   if (s.drag.kind==='ribbonSpin') { ribbonSpinUpdate(s,o,d); return; }
+  if (s.drag.kind==='ribbonNode') { ribbonNodeUpdate(s,o,d); return; }
+  if (s.drag.kind==='ribbonDraw') { ribbonDrawUpdate(s,o,d); return; }
   if (s.drag.kind==='maniGrow') { maniGrowUpdate(s,o,d); return; }
   if (s.drag.kind==='maniPopMove') { popMoveUpdate(s,o,d); return; }
   if (s.drag.kind==='gridResize') { gridResizeUpdate(s,o,d); return; }
@@ -1798,6 +1808,8 @@ function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
   if (dr.kind==='roomCoin') { dr.src = s; roomRelease(dr); return; }
   if (dr.kind==='stick') { stickP.dirty = true; return; }
+  if (dr.kind==='ribbonNode') { dr.node.dragged=false; ribbonSaveEdits(); return; }
+  if (dr.kind==='ribbonDraw') { ribbonDrawEnd(dr); return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove' || dr.kind==='maniGrow' || dr.kind==='maniPopMove' || dr.kind==='ribbonSpin') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
   if (dr.kind==='gridResize') { gridPlacedAt = 0; tablePlaneLock = true; return; }
@@ -1884,7 +1896,7 @@ function setWinView(id){
   tabAnim.from = viewIndex(); state.winView = id; tabAnim.to = viewIndex(); tabAnim.t0 = performance.now()/1000;
   tabsP.fps = 60; tabsP.dirty = true; dioCardP.dirty = true; maniInfo(null);
   if (id==='manifold') toast(MANI_DATA ? 'Manifold · concept on old data (5H, 3 Sep – 19 Oct 2026) · drag to turn, two hands to zoom' : 'Manifold data could not be loaded');
-  if (id==='ribbon') toast('Ribbon · time as a data sculpture · drag to turn, touch a bead, step inside');
+  if (id==='ribbon') toast('Data Arbor · read the data tree, draw new branches or sculpt connected nodes');
 }
 
 // ---- Manifold hologram (concept): Barış's terrain method on his old manifold-v0 fixture
@@ -2413,101 +2425,133 @@ function updateManifold(t,visible){
   }
 }
 
-// ---- Ribbon data sculpture (build 42): the current horizon becomes one continuous, inspectable object.
-// Eight parallel time-strands share one helix. Time rises through it; strength pushes a strand in/out; white is structure
-// and fxlab pink is the selected currency. Geometry is rebuilt only when the horizon changes. Every frame only one group
-// transform and three pulse points move, so the same object stays light enough for the window and for the room-scale view.
-const RIBBON = {turns:5.5, radius:.125, lane:.006, strength:.008, height:.34, maxSteps:72,
-                point:.0042, hit:.009, pulse:.008, pulses:3, pulseSpeed:.065, drift:.045,
-                roomScale:6, reveal:9, spin:5.2};
+// ---- Data Arbor (build 43): a light, editable spatial data tree rather than a fixed helix.
+// The current horizon grows through a shared trunk into eight data branches. READ inspects it; DRAW grows a persistent
+// path from any node; SCULPT moves a node while spring-connected neighbours follow. One dynamic line buffer, shared crisp
+// and glow point buffers, and one hit instancer keep the object inexpensive in the window and at room scale.
+const RIBBON = {steps:26, trunk:12, roots:8, rootSteps:5, point:.0046, glow:.017, hit:.0085, pulse:.008, pulses:3,
+                pulseSpeed:.075, drift:.024, roomScale:6, reveal:8, spin:5.2, drawStep:.013,
+                spring:74, webSpring:18, home:10, damping:6.5, physicsHz:30, maxDraw:56};
 const ribbon = new THREE.Group(); ribbon.name = 'ribbon data sculpture';
 const ribbonWinPos = new THREE.Vector3((WIN.x+WIN.w/2-BW/2)*S,(BH/2-(WIN.y+WIN.h/2))*S,-WIN.depth/2);
 ribbon.position.copy(ribbonWinPos); board.add(ribbon);
 const ribbonTurn = new THREE.Group(); ribbon.add(ribbonTurn);
 const ribbonStatic = new THREE.Group(); ribbonTurn.add(ribbonStatic);
 const ribbonPulse = additivePoints(RIBBON.pulse,RIBBON.pulses); ribbonPulse.material.color.set(C.pink); ribbonPulse.renderOrder = 5; ribbonTurn.add(ribbonPulse);
-const ribbonGrab = new THREE.Mesh(new THREE.CylinderGeometry(.19,.19,.40,32),new THREE.MeshBasicMaterial({visible:false}));
+const ribbonGrab = new THREE.Mesh(new THREE.SphereGeometry(.235,24,16),new THREE.MeshBasicMaterial({visible:false}));
 ribbonGrab.userData.kind = 'ribbonSpin'; ribbonTurn.add(ribbonGrab);
-let ribbonLines = null, ribbonDots = null, ribbonHits = null, ribbonNodes = [], ribbonSelected = null, ribbonReveal = 0, ribbonLastT = null;
-const ribbonCurves = new Map(), ribbonLabels = [];
+const ribbonDrawGeo = new THREE.BufferGeometry(); ribbonDrawGeo.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array((RIBBON.maxDraw+1)*3),3));
+const ribbonDrawPreview = new THREE.Line(ribbonDrawGeo,new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+ribbonDrawPreview.visible=false; ribbonDrawPreview.renderOrder=7; ribbonTurn.add(ribbonDrawPreview);
+let ribbonLines=null, ribbonDots=null, ribbonGlow=null, ribbonHits=null, ribbonNodes=[], ribbonEdges=[], ribbonSelected=null, ribbonReveal=0, ribbonLastT=null, ribbonPhysicsAt=0;
+const ribbonCurves=new Map(), ribbonLabels=[]; let ribbonPaths=[], ribbonSculpt={};
+try { const p=JSON.parse(localStorage.getItem('fxlab-arbor-paths')||'[]'); if(Array.isArray(p))ribbonPaths=p.slice(0,24); } catch{}
+try { const p=JSON.parse(localStorage.getItem('fxlab-arbor-sculpt')||'{}'); if(p&&typeof p==='object')ribbonSculpt=p; } catch{}
 const ribbonInfoCanvas = document.createElement('canvas'); ribbonInfoCanvas.width = 512; ribbonInfoCanvas.height = 128;
 const ribbonInfoCtx = ribbonInfoCanvas.getContext('2d'), ribbonInfoTex = new THREE.CanvasTexture(ribbonInfoCanvas); ribbonInfoTex.colorSpace = THREE.SRGBColorSpace;
 const ribbonInfo = new THREE.Sprite(new THREE.SpriteMaterial({map:ribbonInfoTex,transparent:true,depthWrite:false,toneMapped:false}));
 ribbonInfo.renderOrder = 6; ribbonTurn.add(ribbonInfo);
-const ribbonRoomAt = new THREE.Vector3(), ribbonTmp = new THREE.Vector3(), ribbonMat = new THREE.Matrix4();
+const ribbonRoomAt=new THREE.Vector3(), ribbonForward=new THREE.Vector3(), ribbonTmp=new THREE.Vector3(), ribbonTmp2=new THREE.Vector3(), ribbonMat=new THREE.Matrix4();
 function disposeRibbonStatic(){
   ribbonStatic.traverse(o=>{ if (o.geometry) o.geometry.dispose(); if (o.material) for (const m of [o.material].flat()) { if(m.map&&m.map!==crispTex&&m.map!==glowTex)m.map.dispose(); m.dispose?.(); } });
-  ribbonStatic.clear(); ribbonLines = ribbonDots = ribbonHits = null; ribbonNodes.length = ribbonLabels.length = 0; ribbonCurves.clear();
+  ribbonStatic.clear(); ribbonLines=ribbonDots=ribbonGlow=ribbonHits=null; ribbonNodes.length=ribbonEdges.length=ribbonLabels.length=0; ribbonCurves.clear();
 }
-function ribbonPoint(cur,ci,u,z){
-  const a = u*RIBBON.turns*Math.PI*2, r = RIBBON.radius+(ci-3.5)*RIBBON.lane+Math.max(-2.5,Math.min(2.5,z))*RIBBON.strength;
-  return new THREE.Vector3(Math.cos(a)*r,(u-.5)*RIBBON.height,Math.sin(a)*r);
+function addRibbonNode(uid,pos,o={}){
+  const saved=ribbonSculpt[uid], p=saved?.length===3?new THREE.Vector3(...saved):pos.clone();
+  const n={uid,pos:p,rest:p.clone(),vel:new THREE.Vector3(),force:new THREE.Vector3(),u:o.u??0,cur:o.cur||null,row:o.row||null,obs:o.obs||null,
+    frame:o.frame??null,kind:o.kind||'branch',pathId:o.pathId||null,fixed:!!o.fixed,pinned:!!saved,dragged:false};
+  ribbonNodes.push(n); return ribbonNodes.length-1;
 }
-function makeRibbonLabel(cur,pos){
+function addRibbonEdge(a,b,kind='branch',cur=null,pathId=null){ const d=ribbonNodes[a].pos.distanceTo(ribbonNodes[b].pos); ribbonEdges.push({a,b,kind,cur,pathId,rest:Math.max(.003,d)}); }
+function trunkPoint(u){ return new THREE.Vector3(Math.sin(u*7.1)*.009,(u-.5)*.30,Math.cos(u*5.3)*.008); }
+function branchPoint(ci,u,z,anchor){
+  const ease=1-Math.pow(1-u,2.2), a=ci/CURRENCIES.length*Math.PI*2+u*(.48+ci*.018)+Math.sin(u*5.7+ci)*.07;
+  const zz=Math.max(-2.5,Math.min(2.5,z||0)), r=(.018+.112*ease)+zz*.0045;
+  return new THREE.Vector3(anchor.x+Math.cos(a)*r+Math.sin(u*10+ci)*.0045,anchor.y+u*(.105+.008*(ci%3))+zz*.004,anchor.z+Math.sin(a)*r+Math.cos(u*8.5+ci)*.0045);
+}
+function makeRibbonLabel(cur,node){
   const cv = document.createElement('canvas'); cv.width = 128; cv.height = 48; const x = cv.getContext('2d');
   x.font = '800 30px Manrope'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#ffffff'; x.fillText(cur,64,25);
   const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tx,color:'#ffffff',transparent:true,depthWrite:false,toneMapped:false}));
-  s.position.copy(pos); s.position.y += .014; s.scale.set(.042,.01575,1); s.renderOrder = 5; ribbonStatic.add(s); ribbonLabels.push({cur,s});
+  s.position.copy(node.pos); s.position.y+=.014; s.scale.set(.042,.01575,1); s.renderOrder=5; ribbonStatic.add(s); ribbonLabels.push({cur,node,s});
 }
 function rebuildRibbon(){
   disposeRibbonStatic();
-  const all = obsOf(state.horizon), stride = Math.max(1,Math.ceil(all.length/RIBBON.maxSteps));
+  const all=obsOf(state.horizon), stride=Math.max(1,Math.ceil(all.length/RIBBON.steps));
   const frames = all.filter((_,i)=>i%stride===0 || i===all.length-1); if (!frames.length) return;
-  const linePos = [], lineCur = [], lineU = [], dotPos = [], dotCur = [], dotU = [];
+  const trunk=[]; for(let i=0;i<RIBBON.trunk;i++){ const u=i/(RIBBON.trunk-1), n=addRibbonNode(`${state.horizon}:trunk:${i}`,trunkPoint(u),{u,kind:'trunk',fixed:i===0}); trunk.push(n); if(i)addRibbonEdge(trunk[i-1],n,'trunk'); }
+  // Fine roots make the object read as a grown organism without introducing separate draw calls.
+  for(let r=0;r<RIBBON.roots;r++){ let prev=trunk[0]; const a=r/RIBBON.roots*Math.PI*2;
+    for(let k=1;k<=RIBBON.rootSteps;k++){ const u=k/RIBBON.rootSteps, p=new THREE.Vector3(Math.cos(a+u*.35)*u*.085,-.15-u*.025,Math.sin(a+u*.35)*u*.085); p.y+=Math.sin(k*2+r)*.003;
+      const n=addRibbonNode(`${state.horizon}:root:${r}:${k}`,p,{u,kind:'root'}); addRibbonEdge(prev,n,'root'); prev=n; } }
+  const branchPaths=[];
   CURRENCIES.forEach((cur,ci)=>{
-    const path = [];
-    frames.forEach((o,k)=>{ const row = rowOf(o,cur); if (!row) return; const u = frames.length>1?k/(frames.length-1):1, p = ribbonPoint(cur,ci,u,row.strengthZ);
-      const node = {cur,ci,u,z:row.strengthZ,row,obs:o,frame:all.indexOf(o),pos:p}; path.push(node); ribbonNodes.push(node);
-      dotPos.push(p.x,p.y,p.z); dotCur.push(ci); dotU.push(u);
-      if (path.length>1) { const q = path[path.length-2].pos; linePos.push(q.x,q.y,q.z,p.x,p.y,p.z); lineCur.push(ci,ci); lineU.push(path[path.length-2].u,u); } });
-    ribbonCurves.set(cur,path); if (path.length) makeRibbonLabel(cur,path.at(-1).pos);
+    const attach=trunk[2+Math.round(ci*(RIBBON.trunk-4)/(CURRENCIES.length-1))], anchor=ribbonNodes[attach].pos, path=[]; let prev=attach;
+    frames.forEach((o,k)=>{ const row=rowOf(o,cur); if(!row)return; const u=frames.length>1?k/(frames.length-1):1, frame=all.indexOf(o), p=branchPoint(ci,u,row.strengthZ,anchor);
+      const ni=addRibbonNode(`${state.horizon}:${cur}:${frame}`,p,{cur,u,row,obs:o,frame,kind:'branch'}); addRibbonEdge(prev,ni,'branch',cur); prev=ni; path.push(ribbonNodes[ni]); });
+    ribbonCurves.set(cur,path); branchPaths.push(path); if(path.length)makeRibbonLabel(cur,path.at(-1));
   });
-  const lg = new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.Float32BufferAttribute(linePos,3));
-  lg.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(linePos.length),3)); lg.userData.cur = lineCur; lg.userData.u = lineU;
+  // Sparse cross-links create the luminous web in the references, but are weak constraints so sculpting stays organic.
+  for(const u of [.24,.42,.6,.78,.94]) for(let ci=0;ci<CURRENCIES.length;ci++){ const a=branchPaths[ci], b=branchPaths[(ci+1)%CURRENCIES.length]; if(!a.length||!b.length)continue;
+    const ia=Math.min(a.length-1,Math.round(u*(a.length-1))), ib=Math.min(b.length-1,Math.round(u*(b.length-1)));
+    addRibbonEdge(ribbonNodes.indexOf(a[ia]),ribbonNodes.indexOf(b[ib]),'web'); }
+  // User-drawn paths survive horizon changes. If their old anchor is absent, they grow from the root.
+  for(const path of ribbonPaths){ const anchor=Math.max(0,ribbonNodes.findIndex(n=>n.uid===path.anchor)), nodes=[ribbonNodes[anchor]]; let prev=anchor;
+    for(let k=0;k<(path.pts||[]).length;k++){ const p=path.pts[k]; if(!Array.isArray(p)||p.length!==3)continue; const ni=addRibbonNode(`${path.id}:${k}`,new THREE.Vector3(...p),{u:(k+1)/Math.max(1,path.pts.length),kind:'custom',pathId:path.id});
+      addRibbonEdge(prev,ni,'custom',null,path.id); prev=ni; nodes.push(ribbonNodes[ni]); } ribbonCurves.set(path.id,nodes); }
+  const linePos=new Float32Array(ribbonEdges.length*6), lineCol=new Float32Array(ribbonEdges.length*6);
+  const lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.BufferAttribute(linePos,3).setUsage(THREE.DynamicDrawUsage));
+  lg.setAttribute('color',new THREE.BufferAttribute(lineCol,3).setUsage(THREE.DynamicDrawUsage));
   ribbonLines = new THREE.LineSegments(lg,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
   ribbonLines.renderOrder = 3; ribbonLines.frustumCulled = false; ribbonStatic.add(ribbonLines);
-  const dg = new THREE.BufferGeometry(); dg.setAttribute('position',new THREE.Float32BufferAttribute(dotPos,3));
-  dg.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(dotPos.length),3)); dg.userData.cur = dotCur; dg.userData.u = dotU;
+  const dg=new THREE.BufferGeometry(); dg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ribbonNodes.length*3),3).setUsage(THREE.DynamicDrawUsage));
+  dg.setAttribute('color',new THREE.BufferAttribute(new Float32Array(ribbonNodes.length*3),3).setUsage(THREE.DynamicDrawUsage));
   ribbonDots = new THREE.Points(dg,new THREE.PointsMaterial({map:crispTex,size:RIBBON.point,vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
   ribbonDots.renderOrder = 4; ribbonDots.frustumCulled = false; ribbonStatic.add(ribbonDots);
+  const gg=new THREE.BufferGeometry(); gg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ribbonNodes.length*3),3).setUsage(THREE.DynamicDrawUsage));
+  gg.setAttribute('color',new THREE.BufferAttribute(new Float32Array(ribbonNodes.length*3),3).setUsage(THREE.DynamicDrawUsage));
+  ribbonGlow=new THREE.Points(gg,new THREE.PointsMaterial({map:glowTex,size:RIBBON.glow,vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
+  ribbonGlow.renderOrder=2;ribbonGlow.frustumCulled=false;ribbonStatic.add(ribbonGlow);
   const hg = new THREE.SphereGeometry(RIBBON.hit,6,4), hm = new THREE.MeshBasicMaterial({visible:false});
   ribbonHits = new THREE.InstancedMesh(hg,hm,ribbonNodes.length); ribbonHits.userData.kind = 'ribbonPoint'; ribbonHits.userData.nodes = ribbonNodes;
-  ribbonNodes.forEach((n,i)=>{ ribbonMat.makeTranslation(n.pos.x,n.pos.y,n.pos.z); ribbonHits.setMatrixAt(i,ribbonMat); }); ribbonHits.instanceMatrix.needsUpdate = true; ribbonStatic.add(ribbonHits);
-  // Five quiet time rings and radial stitches make the temporal object readable from a distance without extra meshes per datum.
-  for (let k=0;k<5;k++) { const u = k/4, pts = []; for (let j=0;j<=96;j++) { const a=j/96*Math.PI*2, r=RIBBON.radius; pts.push(new THREE.Vector3(Math.cos(a)*r,(u-.5)*RIBBON.height,Math.sin(a)*r)); }
-    const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:k===4?.18:.07,depthWrite:false,toneMapped:false})); ring.renderOrder=1; ribbonStatic.add(ring); }
-  const stitches=[]; for(let k=0;k<frames.length;k+=Math.max(1,Math.round(frames.length/18))){ const u=frames.length>1?k/(frames.length-1):1, a=u*RIBBON.turns*Math.PI*2;
-    for(const r of [RIBBON.radius-.026,RIBBON.radius+.026]) stitches.push(Math.cos(a)*r,(u-.5)*RIBBON.height,Math.sin(a)*r); }
-  const stitch = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(stitches,3)),new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:.09,depthWrite:false,toneMapped:false})); ribbonStatic.add(stitch);
+  ribbonHits.instanceMatrix.setUsage(THREE.DynamicDrawUsage); ribbonStatic.add(ribbonHits); updateRibbonGeometry(true);
   const saved = Number.isInteger(state.ribbonFrame) ? ribbonCurves.get(state.currency)?.find(n=>n.frame===state.ribbonFrame) : null;
   ribbonSelected = saved || ribbonCurves.get(state.currency)?.at(-1) || ribbonNodes.at(-1); updateRibbonStyle(); setRibbonClip(!state.ribbonRoom);
+}
+function updateRibbonGeometry(hits=false){ if(!ribbonLines||!ribbonDots)return; const lp=ribbonLines.geometry.attributes.position, dp=ribbonDots.geometry.attributes.position, gp=ribbonGlow.geometry.attributes.position;
+  ribbonEdges.forEach((e,i)=>{ const a=ribbonNodes[e.a].pos,b=ribbonNodes[e.b].pos,j=i*2; lp.setXYZ(j,a.x,a.y,a.z); lp.setXYZ(j+1,b.x,b.y,b.z); }); lp.needsUpdate=true;
+  ribbonNodes.forEach((n,i)=>{ dp.setXYZ(i,n.pos.x,n.pos.y,n.pos.z);gp.setXYZ(i,n.pos.x,n.pos.y,n.pos.z);if(hits){ ribbonMat.makeTranslation(n.pos.x,n.pos.y,n.pos.z); ribbonHits.setMatrixAt(i,ribbonMat); } }); dp.needsUpdate=gp.needsUpdate=true;
+  if(hits)ribbonHits.instanceMatrix.needsUpdate=true; ribbonLabels.forEach(o=>{o.s.position.copy(o.node.pos);o.s.position.y+=.014;});
+  if(ribbonSelected){ ribbonInfo.position.copy(ribbonSelected.pos); ribbonInfo.position.y+=ribbonSelected.u>.7?-.052:.040; }
 }
 function updateRibbonInfo(){
   const x = ribbonInfoCtx, n = ribbonSelected; x.clearRect(0,0,512,128); if (!n) { ribbonInfo.visible=false; return; }
   x.fillStyle='rgba(20,18,42,.82)'; x.beginPath(); x.roundRect(2,2,508,124,28); x.fill(); x.lineWidth=2; x.strokeStyle='rgba(255,255,255,.38)'; x.stroke();
   x.fillStyle=C.pink; x.beginPath(); x.arc(34,34,8,0,Math.PI*2); x.fill(); x.textBaseline='middle'; x.textAlign='left';
-  x.font='800 28px Manrope'; x.fillStyle='#ffffff'; x.fillText(n.cur,54,35); x.font='600 23px "Kode Mono"'; x.fillText(`${n.z>=0?'+':'−'}${Math.abs(n.z).toFixed(2)} z`,54,76);
-  x.font='400 18px "Kode Mono"'; x.fillStyle='#a7a2c9'; x.fillText(utcLabel(n.obs.end),218,36); const d=n.row.delta1?.value; x.fillText(Number.isFinite(d)?`Δ1 ${d>=0?'+':''}${d.toFixed(2)} · rank ${n.row.rank}/8`:`rank ${n.row.rank}/8`,218,76);
-  ribbonInfoTex.needsUpdate=true; ribbonInfo.visible=true; ribbonInfo.position.copy(n.pos); ribbonInfo.position.y+=n.u>.7?-.052:.040;
+  if(n.row){ x.font='800 28px Manrope'; x.fillStyle='#ffffff'; x.fillText(n.cur,54,35); x.font='600 23px "Kode Mono"'; const z=n.row.strengthZ||0; x.fillText(`${z>=0?'+':'−'}${Math.abs(z).toFixed(2)} z`,54,76);
+    x.font='400 18px "Kode Mono"'; x.fillStyle='#a7a2c9'; x.fillText(utcLabel(n.obs.end),218,36); const d=n.row.delta1?.value; x.fillText(Number.isFinite(d)?`Δ1 ${d>=0?'+':''}${d.toFixed(2)} · rank ${n.row.rank}/8`:`rank ${n.row.rank}/8`,218,76); }
+  else { x.font='800 28px Manrope'; x.fillStyle='#ffffff'; x.fillText(n.kind==='custom'?'DRAWN BRANCH':'DATA ARBOR',54,35); x.font='500 20px "Kode Mono"'; x.fillStyle='#a7a2c9'; x.fillText(n.kind==='custom'?'SCULPT OR GROW FROM THIS NODE':'ROOT · CONNECTED STRUCTURE',54,76); }
+  ribbonInfoTex.needsUpdate=true; ribbonInfo.visible=true; updateRibbonGeometry(false);
 }
 function updateRibbonStyle(){
   if (!ribbonNodes.length || !ribbonLines || !ribbonDots) return;
-  if (!ribbonSelected || ribbonSelected.cur!==state.currency) ribbonSelected = ribbonCurves.get(state.currency)?.at(-1) || ribbonSelected;
-  const paint = (geo,point)=>{ const a=geo.attributes.color.array, cs=geo.userData.cur, us=geo.userData.u;
-    for(let i=0;i<cs.length;i++){ const on=CURRENCIES[cs[i]]===state.currency, fade=.025+.12*Math.pow(us[i],1.25), alpha=on?(point?1:.9)*(.5+.5*us[i]):fade*(point?1:.65), c=on?PINK:WHITE;
-      a[i*3]=c.r*alpha; a[i*3+1]=c.g*alpha; a[i*3+2]=c.b*alpha; } geo.attributes.color.needsUpdate=true; };
-  paint(ribbonLines.geometry,false); paint(ribbonDots.geometry,true);
+  if(!ribbonSelected)ribbonSelected=ribbonCurves.get(state.currency)?.at(-1)||ribbonNodes[0]; const key=ribbonSelected.pathId||state.currency;
+  const lc=ribbonLines.geometry.attributes.color; ribbonEdges.forEach((e,i)=>{ const on=e.pathId?e.pathId===key:e.cur===state.currency, base=e.kind==='web'?.08:e.kind==='root'?.18:e.kind==='trunk'?.40:e.kind==='custom'?.42:.14, a=on?.95:base, c=on?PINK:WHITE;
+    lc.setXYZ(i*2,c.r*a,c.g*a,c.b*a); lc.setXYZ(i*2+1,c.r*a,c.g*a,c.b*a); }); lc.needsUpdate=true;
+  const dc=ribbonDots.geometry.attributes.color,gc=ribbonGlow.geometry.attributes.color; ribbonNodes.forEach((n,i)=>{ const on=n.pathId?n.pathId===key:n.cur===state.currency, base=n.kind==='root'?.22:n.kind==='trunk'?.52:n.kind==='custom'?.58:.25, a=on?1:base, ga=on?.44:n.kind==='trunk'?.16:.075, c=on?PINK:WHITE; dc.setXYZ(i,c.r*a,c.g*a,c.b*a);gc.setXYZ(i,c.r*ga,c.g*ga,c.b*ga); }); dc.needsUpdate=gc.needsUpdate=true;
   ribbonLabels.forEach(o=>{ const on=o.cur===state.currency; o.s.material.color.set(on?C.pink:'#ffffff'); o.s.material.opacity=on?1:.42; });
   updateRibbonInfo();
 }
-function ribbonSelect(hit){ const n=hit.object.userData.nodes?.[hit.instanceId]; if(!n)return; ribbonSelected=n; state.ribbonFrame=n.frame; state.currency=n.cur; dashP.dirty=widgetP.dirty=true; updateRibbonStyle(); }
+function ribbonSelect(hit){ const n=hit.object.userData.nodes?.[hit.instanceId]; if(!n)return; ribbonSelected=n; if(n.cur){state.ribbonFrame=n.frame;state.currency=n.cur;dashP.dirty=widgetP.dirty=true;} updateRibbonStyle(); }
+function setRibbonMode(mode){ if(!['read','draw','sculpt'].includes(mode))return; state.ribbonMode=mode; dioCardP.dirty=ribbonCapP.dirty=true;
+  toast(mode==='draw'?'DRAW · pinch a node and pull a new branch through space':mode==='sculpt'?'SCULPT · grab a node; its connected neighbours follow':'READ · touch a node to inspect its data'); }
 const setRibbonClip = on => ribbon.traverse(o=>{ if(o.material) for(const m of [o.material].flat()){ m.clippingPlanes=on?winPlanes:null; m.needsUpdate=true; } });
 function ribbonToRoom(){
   if(state.ribbonRoom)return; if(state.maniRoom)maniFromRoom(); state.ribbonRoom=true;
-  const cam=renderer.xr.isPresenting?renderer.xr.getCamera():camera; cam.getWorldPosition(ribbonRoomAt); ribbonRoomAt.y=1.08;
+  const cam=renderer.xr.isPresenting?renderer.xr.getCamera():camera; cam.getWorldPosition(ribbonRoomAt);ribbonForward.set(0,0,-1).applyQuaternion(cam.getWorldQuaternion(tmpQ));ribbonForward.y=0;if(ribbonForward.lengthSq()<1e-5)ribbonForward.set(0,0,-1);ribbonForward.normalize();ribbonRoomAt.addScaledVector(ribbonForward,.55);ribbonRoomAt.y=1.08;
   scene.add(ribbon); ribbon.position.copy(ribbonRoomAt); ribbon.scale.setScalar(RIBBON.roomScale); setRibbonClip(false); dioCardP.dirty=true; ribbonCapP.dirty=true;
-  toast('Inside the ribbon · turn it, touch a bead, scrub time by choosing another moment');
+  toast('Inside the Data Arbor · read, draw or sculpt its connected branches');
 }
 function ribbonFromRoom(){ if(!state.ribbonRoom)return; state.ribbonRoom=false; board.add(ribbon); ribbon.position.copy(ribbonWinPos); ribbon.scale.setScalar(1); setRibbonClip(true); dioCardP.dirty=true; ribbonCapP.dirty=true; }
 const ribbonPlane=new THREE.Plane(), ribbonHit=new THREE.Vector3(), ribbonInv=new THREE.Matrix4(), ribbonCentre=new THREE.Vector3(), ribbonNormal=new THREE.Vector3();
@@ -2518,18 +2562,36 @@ function ribbonSpinStart(s,point){
 }
 function ribbonSpinUpdate(s,o,d){ const q=s.drag; raycaster.set(o,d); if(!raycaster.ray.intersectPlane(q.plane,ribbonHit))return; ribbonHit.applyMatrix4(q.inv);
   state.ribbonYaw=q.yaw0+(ribbonHit.x-q.p0.x)*q.k; state.ribbonTilt=Math.max(-.35,Math.min(.75,q.tilt0-(ribbonHit.y-q.p0.y)*q.k)); }
+function ribbonEditPlane(localPos){ ribbonTurn.localToWorld(ribbonCentre.copy(localPos)); (renderer.xr.isPresenting?renderer.xr.getCamera():camera).getWorldPosition(ribbonNormal); ribbonNormal.sub(ribbonCentre).normalize(); ribbonPlane.setFromNormalAndCoplanarPoint(ribbonNormal,ribbonCentre); ribbonInv.copy(ribbonTurn.matrixWorld).invert(); }
+function ribbonNodeStart(s,n){ ribbonEditPlane(n.pos); n.dragged=true;n.pinned=true;ribbonSelected=n;updateRibbonStyle();s.drag={kind:'ribbonNode',node:n,plane:ribbonPlane.clone(),inv:ribbonInv.clone()}; }
+function ribbonNodeUpdate(s,o,d){ const q=s.drag;raycaster.set(o,d);if(!raycaster.ray.intersectPlane(q.plane,ribbonHit))return;ribbonHit.applyMatrix4(q.inv);if(ribbonHit.length()>.32)ribbonHit.setLength(.32);q.node.pos.copy(ribbonHit);q.node.rest.copy(ribbonHit);q.node.vel.set(0,0,0);updateRibbonGeometry(true); }
+function ribbonSaveEdits(){ ribbonSculpt={}; for(const n of ribbonNodes)if(n.pinned&&n.kind!=='custom')ribbonSculpt[n.uid]=n.pos.toArray();
+  for(const p of ribbonPaths){ const ns=ribbonCurves.get(p.id); if(ns)p.pts=ns.slice(1).map(n=>n.pos.toArray()); }
+  try{localStorage.setItem('fxlab-arbor-sculpt',JSON.stringify(ribbonSculpt));localStorage.setItem('fxlab-arbor-paths',JSON.stringify(ribbonPaths));}catch{}
+}
+function ribbonDrawStart(s,n){ n=n||ribbonSelected||ribbonNodes[0];if(!n)return;ribbonSelected=n;updateRibbonStyle();ribbonEditPlane(n.pos);const id=`path-${Date.now().toString(36)}-${Math.floor(Math.random()*999).toString(36)}`;
+  const path={id,anchor:n.uid,pts:[]}, a=ribbonDrawGeo.attributes.position;a.setXYZ(0,n.pos.x,n.pos.y,n.pos.z);ribbonDrawGeo.setDrawRange(0,1);a.needsUpdate=true;ribbonDrawPreview.visible=true;
+  s.drag={kind:'ribbonDraw',path,plane:ribbonPlane.clone(),inv:ribbonInv.clone(),last:n.pos.clone(),count:1}; }
+function ribbonDrawUpdate(s,o,d){ const q=s.drag;raycaster.set(o,d);if(!raycaster.ray.intersectPlane(q.plane,ribbonHit))return;ribbonHit.applyMatrix4(q.inv);if(ribbonHit.length()>.32)ribbonHit.setLength(.32);if(ribbonHit.distanceTo(q.last)<RIBBON.drawStep||q.count>RIBBON.maxDraw)return;
+  q.last.copy(ribbonHit);q.path.pts.push(ribbonHit.toArray());const a=ribbonDrawGeo.attributes.position;a.setXYZ(q.count,ribbonHit.x,ribbonHit.y,ribbonHit.z);q.count++;ribbonDrawGeo.setDrawRange(0,q.count);a.needsUpdate=true; }
+function ribbonDrawEnd(q){ ribbonDrawPreview.visible=false;if(q.path.pts.length>1){ribbonPaths.push(q.path);ribbonPaths=ribbonPaths.slice(-24);try{localStorage.setItem('fxlab-arbor-paths',JSON.stringify(ribbonPaths));}catch{}rebuildRibbon();ribbonSelected=ribbonCurves.get(q.path.id)?.at(-1)||ribbonSelected;updateRibbonStyle();toast(`Branch grown · ${q.path.pts.length} nodes`);}else toast('Draw farther to grow a branch'); }
+function ribbonPhysics(dt){ if(!ribbonNodes.length)return;for(const n of ribbonNodes)n.force.set(0,0,0);
+  for(const e of ribbonEdges){const a=ribbonNodes[e.a],b=ribbonNodes[e.b];ribbonTmp.subVectors(b.pos,a.pos);const len=Math.max(1e-5,ribbonTmp.length()),k=e.kind==='web'?RIBBON.webSpring:RIBBON.spring,f=(len-e.rest)*k;ribbonTmp.multiplyScalar(f/len);if(!a.fixed&&!a.dragged)a.force.add(ribbonTmp);if(!b.fixed&&!b.dragged)b.force.sub(ribbonTmp);}
+  let moving=false;for(const n of ribbonNodes){if(n.fixed||n.dragged)continue;n.force.addScaledVector(ribbonTmp2.subVectors(n.rest,n.pos),n.pinned?RIBBON.home*1.8:RIBBON.home);n.vel.addScaledVector(n.force,dt).multiplyScalar(Math.exp(-RIBBON.damping*dt));n.pos.addScaledVector(n.vel,dt);if(n.vel.lengthSq()>1e-8)moving=true;}if(moving||ribbonNodes.some(n=>n.dragged))updateRibbonGeometry(true);
+}
 function updateRibbon(t,visible){
   ribbon.visible=visible; if(!visible){ribbonReveal=0;ribbonLastT=t;return;} const dt=Math.min(.05,Math.max(0,t-(ribbonLastT??t))); ribbonLastT=t;
-  ribbonReveal+=(1-ribbonReveal)*(1-Math.exp(-dt*RIBBON.reveal)); const held=sources.some(s=>s.drag?.kind==='ribbonSpin'); if(!held)state.ribbonYaw=(state.ribbonYaw||0)+dt*RIBBON.drift;
+  ribbonReveal+=(1-ribbonReveal)*(1-Math.exp(-dt*RIBBON.reveal)); const held=sources.some(s=>s.drag?.kind?.startsWith('ribbon')); if(!held&&state.ribbonMode==='read')state.ribbonYaw=(state.ribbonYaw||0)+dt*RIBBON.drift;
   ribbonTurn.rotation.set(state.ribbonTilt||0,state.ribbonYaw||0,0); const e=.72+.28*(1-Math.pow(1-ribbonReveal,3)); ribbonTurn.scale.setScalar(e);
-  ribbonDots.material.size=RIBBON.point*(state.ribbonRoom?1.65:1); ribbonPulse.material.size=RIBBON.pulse*(state.ribbonRoom?1.45:1);
-  const path=ribbonCurves.get(state.currency)||[], pa=ribbonPulse.geometry.attributes.position; for(let j=0;j<RIBBON.pulses;j++){ const u=(t*RIBBON.pulseSpeed+j/RIBBON.pulses)%1, f=u*Math.max(0,path.length-1), i=Math.min(path.length-1,Math.floor(f)), b=Math.min(path.length-1,i+1);
+  ribbonDots.material.size=RIBBON.point*(state.ribbonRoom?1.65:1); ribbonGlow.material.size=RIBBON.glow*(state.ribbonRoom?1.4:1); ribbonPulse.material.size=RIBBON.pulse*(state.ribbonRoom?1.45:1);
+  if(t-ribbonPhysicsAt>=1/RIBBON.physicsHz){ribbonPhysics(Math.min(.05,t-ribbonPhysicsAt||1/RIBBON.physicsHz));ribbonPhysicsAt=t;}
+  const path=ribbonCurves.get(ribbonSelected?.pathId||state.currency)||[], pa=ribbonPulse.geometry.attributes.position; for(let j=0;j<RIBBON.pulses;j++){ const u=(t*RIBBON.pulseSpeed+j/RIBBON.pulses)%1, f=u*Math.max(0,path.length-1), i=Math.min(path.length-1,Math.floor(f)), b=Math.min(path.length-1,i+1);
     if(path.length){ ribbonTmp.copy(path[i].pos).lerp(path[b].pos,f-i); pa.setXYZ(j,ribbonTmp.x,ribbonTmp.y,ribbonTmp.z); } } pa.needsUpdate=true; ribbonPulse.geometry.setDrawRange(0,path.length?RIBBON.pulses:0);
   if(ribbonInfo.visible){ const k=state.ribbonRoom?1/RIBBON.roomScale:1; ribbonInfo.scale.set(.17*k,.0425*k,1); }
 }
 const ribbonCapP = panel({name:'ribbon caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:470,h:26,margin:8,z:.012,draw(ctx){
-  rr(ctx,0,0,470,26,13); ctx.fillStyle='rgba(35,32,66,.85)'; ctx.fill(); const n=obsOf(state.horizon).length;
-  text(ctx,(state.ribbonRoom?'AROUND YOU · ':'')+`SCULPTURE · ${state.horizon.toUpperCase()} · ${n} OBS · TOUCH A BEAD`,235,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
+  rr(ctx,0,0,470,26,13); ctx.fillStyle='rgba(35,32,66,.85)'; ctx.fill(); const n=obsOf(state.horizon).length, mode=String(state.ribbonMode||'read').toUpperCase();
+  text(ctx,(state.ribbonRoom?'AROUND YOU · ':'')+`DATA ARBOR · ${mode} · ${state.horizon.toUpperCase()} · ${n} OBS`,235,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
 }}); ribbonCapP.mesh.visible=false;
 rebuildRibbon(); if(state.ribbonRoom){ state.ribbonRoom=false; ribbonToRoom(); }
 
@@ -2641,8 +2703,8 @@ function press(source,hit){
   if (hit.kind==='maniGrow') { maniGrowStart(source,hit); return; }
   if (hit.kind==='maniPopMove') { popMoveStart(source,hit); return; }
   if (hit.kind==='maniSpin') { maniSpinStart(source,hit.point); return; }
-  if (hit.kind==='ribbonPoint') { ribbonSelect(hit); ribbonSpinStart(source,hit.point); return; }
-  if (hit.kind==='ribbonSpin') { ribbonSpinStart(source,hit.point); return; }
+  if (hit.kind==='ribbonPoint') { ribbonSelect(hit); if(state.ribbonMode==='sculpt')ribbonNodeStart(source,ribbonSelected); else if(state.ribbonMode==='draw')ribbonDrawStart(source,ribbonSelected); return; }
+  if (hit.kind==='ribbonSpin') { if(state.ribbonMode==='draw')ribbonDrawStart(source,ribbonSelected); else ribbonSpinStart(source,hit.point); return; }
   if (hit.kind==='maniMove') { source.drag = {kind:'maniMove'}; return; }
   if (hit.kind) { dragStart(source,hit); return; }
   if (hit.panel===stickP && (hit.region?.id==='pad' || hit.region?.id==='lift')) { stickStart(source,hit.region.id); return; }
