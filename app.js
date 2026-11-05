@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '32';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '33';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -1049,74 +1049,77 @@ function roomDrop(rc){
   toast(`${rc.cur} · ${Math.round(rc.r*100)} cm from you`,1600);
 }
 addEventListener('wheel',e=>{ if (mouse.drag?.kind==='roomCoin' && mouse.drag.mode==='ray') { mouse.drag.dist = Math.max(.15,Math.min(ROOM.rMax+.5,mouse.drag.dist-e.deltaY*.002)); e.preventDefault(); } },{passive:false});
-// ---- room network: every pair of coins is joined by a bundle of fine hair-strands arching over the user's head
-// (Ulaş, session 20): always there but faint · the selected coin's bundles come up bright · strength of a link ← z gap of the
-// two currencies (chosen horizon, latest observation): wider gap = more strands, wider bundle, more and faster pulses ·
-// colour flows from one currency's own colour to the other's along the strands · pulses travel weak → strong ·
-// strands thin out with distance from the head
+// ---- room network (Ulaş, session 20 · ref. 4 "What it takes to go to space"): Sankey-style cubic Bezier bands between every pair
+// each end has a tangent: horizontal (along the orbit, around the user) or vertical · the strands sit side by side at the coin
+// (like a Sankey node bar) and fan out a little in the middle · always there but faint, the selected coin's bands bright ·
+// strength ← z gap (chosen horizon, latest observation): more strands, wider fan, more and faster pulses · colour flows from
+// one currency's own colour to the other's · pulses weak → strong · strands thin out with distance from the head
+// mode (?links= in the URL to compare): 'h' leave + arrive horizontally · 'v' leave + arrive vertically · 'hv' leave horizontally, arrive vertically
 const CUR_COL = {USD:'#8fb4ff', EUR:'#b39dff', GBP:'#e2a8ee', JPY:'#ff9fb3', AUD:'#ffbe85', NZD:'#efe08a', CAD:'#9be3ae', CHF:'#8adfe6'};   // Claude's placeholder palette — awaiting Ulaş
 const curCol = Object.fromEntries(Object.entries(CUR_COL).map(([k,v])=>[k,new THREE.Color(v)]));
-const RLINK = {over:.25, overPer:.18, pull:.65,            // arc top: head height + over + overPer × span (m) · how far the arc leans in over the user
-               strandsMax:9, strandsDim:3, bundle:.02, bundlePer:.11,   // strands per bundle (selected / others) · bundle half-width at the top, m
-               bead:.009, beadSize:.0034, beadsMax:240,    // hair: dense tiny dots
-               glow:.5, faint:.12,                         // selected bundles · all other bundles
+const RLINK = {mode:'h',
+               hReach:.5, vReach:.3, vReachPer:.55,      // tangent length: horizontal ← share of the arc between the coins · vertical ← m + share of the distance (varied per pair)
+               port:.7, fan:1.4, fanPer:1.6,             // strands stacked across this share of the glass sphere at each end · extra spread in the middle (× port), more for a wider gap
+               strandsMax:9, strandsDim:3,               // strands per band: selected / others
+               bead:.009, beadSize:.0034, beadsMax:260,  // hair: dense tiny dots
+               glow:.5, faint:.12,                       // selected bands · all other bands
                pulseSize:.011, pulses:5, speed:.12, speedPer:.45, pulseGlow:1.1,
-               fadeNear:1.2, fadeFar:4, node:.016};
+               fadeNear:1.2, fadeFar:4};
+{ const m = new URLSearchParams(location.search).get('links'); if (['h','v','hv'].includes(m)) RLINK.mode = m; }
 const roomPairs = []; for (let a=0;a<8;a++) for (let b=a+1;b<8;b++) roomPairs.push([a,b]);
 const rBeads = additivePoints(RLINK.beadSize,roomPairs.length*RLINK.strandsMax*(RLINK.beadsMax+1));
-const rFlow = additivePoints(RLINK.pulseSize,roomPairs.length*(RLINK.strandsMax*(RLINK.pulses+1)+2));
+const rFlow = additivePoints(RLINK.pulseSize,roomPairs.length*RLINK.strandsMax*RLINK.pulses);
 rBeads.material.map = crispTex; orbitRoot.add(rBeads,rFlow);
-const strandSeed = Array.from({length:RLINK.strandsMax},(_,k)=>{                 // fixed spread of each strand across the bundle
-  const a = k*2.39996323, r = k ? Math.sqrt(k/(RLINK.strandsMax-1)) : 0; return [Math.cos(a)*r,Math.sin(a)*r,k*1.7]; });
-const rA = new THREE.Vector3(), rB = new THREE.Vector3(), rM = new THREE.Vector3(), rC = new THREE.Vector3(), rP = new THREE.Vector3();
-const rSide = new THREE.Vector3(), rUp = new THREE.Vector3(), rTmp = new THREE.Vector3(), Y_UP = new THREE.Vector3(0,1,0);
-function roomNode(rc,to,out){                                                     // leaves the glass sphere toward the other coin, leaning upward
-  const R = HALO.rimR*rc.halo.size*rc.g.scale.x;
-  rTmp.copy(to.g.position).sub(rc.g.position).normalize(); rTmp.y += 1.2; rTmp.normalize();
-  return out.copy(rTmp).multiplyScalar(R).add(rc.g.position); }
-const bez = (u,c,out) => { const k = 1-u; return out.set(k*k*rA.x+2*k*u*c.x+u*u*rB.x, k*k*rA.y+2*k*u*c.y+u*u*rB.y, k*k*rA.z+2*k*u*c.z+u*u*rB.z); };
+const pairSeed = roomPairs.map((_,i)=>((i*7919)%29)/28);                         // fixed 0…1 per pair: varied heights, no shared top
+const P0 = new THREE.Vector3(), P1 = new THREE.Vector3(), P2 = new THREE.Vector3(), P3 = new THREE.Vector3(), rP = new THREE.Vector3();
+const tA = new THREE.Vector3(), tB = new THREE.Vector3(), oA = new THREE.Vector3(), oB = new THREE.Vector3(), Y_UP = new THREE.Vector3(0,1,0);
+const cub = (u,a,b,c,d,out) => { const k = 1-u, k3 = k*k*k, k2 = 3*k*k*u, u2 = 3*k*u*u, u3 = u*u*u;
+  return out.set(k3*a.x+k2*b.x+u2*c.x+u3*d.x, k3*a.y+k2*b.y+u2*c.y+u3*d.y, k3*a.z+k2*b.z+u2*c.z+u3*d.z); };
 const fadeAt = p => { const d = Math.hypot(p.x-roomHead.x,p.y-roomHead.y,p.z-roomHead.z);
   return 1-Math.max(0,Math.min(1,(d-RLINK.fadeNear)/(RLINK.fadeFar-RLINK.fadeNear)))*.85; };
+const orbitTan = (rc,sgn,out) => {                                                 // direction along the orbit at the coin (around the user)
+  const x = rc.g.position.x-orbitCentre.x, z = rc.g.position.z-orbitCentre.z, l = Math.hypot(x,z)||1; return out.set(-z/l*sgn,0,x/l*sgn); };
 function updateRoomLinks(t){
   const bp = rBeads.geometry.attributes.position.array, bc = rBeads.geometry.attributes.color.array;
   const fp = rFlow.geometry.attributes.position.array, fc = rFlow.geometry.attributes.color.array;
-  let nb = 0, nf = 0; const selIdx = CURRENCIES.indexOf(state.currency);
+  let nb = 0, nf = 0; const selIdx = CURRENCIES.indexOf(state.currency), mode = RLINK.mode;
   roomPairs.forEach(([ia,ib],pi)=>{
     const hot = ia===selIdx || ib===selIdx;
-    const A = roomCoins[ia], B = roomCoins[ib];
-    roomNode(A,B,rA); roomNode(B,A,rB);
-    // parabola over the head: the top leans in toward the user and rises above head height, higher for longer spans
-    const span = Math.hypot(rB.x-rA.x,rB.z-rA.z);
-    const peakY = orbitCentre.y+RLINK.over+RLINK.overPer*span;
-    rM.addVectors(rA,rB).multiplyScalar(.5);
-    rC.set(rM.x+(orbitCentre.x-rM.x)*RLINK.pull, 2*peakY-rM.y, rM.z+(orbitCentre.z-rM.z)*RLINK.pull);
-    rSide.subVectors(rB,rA).cross(Y_UP); if (rSide.lengthSq()<1e-8) rSide.set(1,0,0); rSide.normalize();
-    rUp.subVectors(rB,rA).cross(rSide).normalize();
-    const len = rA.distanceTo(rC)+rC.distanceTo(rB);
-    const gap = B.z-A.z, gapN = Math.min(1,Math.abs(gap)/2);              // z gap → link strength
+    const A = roomCoins[ia], B = roomCoins[ib], pa = A.g.position, pb = B.g.position;
+    const aA = Math.atan2(pa.z-orbitCentre.z,pa.x-orbitCentre.x), aB = Math.atan2(pb.z-orbitCentre.z,pb.x-orbitCentre.x);
+    let d = aB-aA; d = Math.atan2(Math.sin(d),Math.cos(d)); const sgn = d>=0 ? 1 : -1;   // the short way around
+    const rAv = .5*(Math.hypot(pa.x-orbitCentre.x,pa.z-orbitCentre.z)+Math.hypot(pb.x-orbitCentre.x,pb.z-orbitCentre.z));
+    const hLen = RLINK.hReach*Math.abs(d)*rAv+.05, vLen = (RLINK.vReach+RLINK.vReachPer*pa.distanceTo(pb))*(.55+.9*pairSeed[pi]);
+    const RA = HALO.rimR*A.halo.size*A.g.scale.x, RB = HALO.rimR*B.halo.size*B.g.scale.x;
+    // end tangents and the axis the strands are stacked along at each end (across the tangent)
+    if (mode==='v') { tA.copy(Y_UP); tB.copy(Y_UP).negate(); }                          // up out of A … down into B
+    else { orbitTan(A,sgn,tA); if (mode==='h') orbitTan(B,sgn,tB); else tB.copy(Y_UP).negate(); }
+    if (tA.y) orbitTan(A,1,oA); else oA.copy(Y_UP);
+    if (tB.y) orbitTan(B,1,oB); else oB.copy(Y_UP);
+    const lA = tA.y ? vLen : hLen, lB = tB.y ? vLen : hLen;
+    const gap = B.z-A.z, gapN = Math.min(1,Math.abs(gap)/2);                          // z gap → link strength
     const strands = hot ? 1+Math.round((RLINK.strandsMax-1)*gapN) : Math.max(1,Math.round(RLINK.strandsDim*gapN));
-    const width = (RLINK.bundle+RLINK.bundlePer*gapN)*2;                 // control-point offset → half-width at the top
-    const base = (hot ? RLINK.glow : RLINK.faint)/Math.sqrt(strands);    // more strands overlap brighter, but never blow out
+    const fan = RLINK.fan+RLINK.fanPer*gapN, base = (hot ? RLINK.glow : RLINK.faint)/Math.sqrt(strands);
     const cA = curCol[A.cur], cB = curCol[B.cur];
-    const n = Math.min(RLINK.beadsMax,Math.max(12,Math.floor(len/RLINK.bead)));
-    const fwd = gap>=0, v = (RLINK.speed+RLINK.speedPer*gapN)/Math.max(len,.01);   // pulses: weaker → stronger
+    const len = pa.distanceTo(pb)+.6*(lA+lB), n = Math.min(RLINK.beadsMax,Math.max(16,Math.floor(len/RLINK.bead)));
+    const fwd = gap>=0, v = (RLINK.speed+RLINK.speedPer*gapN)/Math.max(len,.01);    // pulses: weaker → stronger
     const nP = hot ? 1+Math.round((RLINK.pulses-1)*gapN) : 0;
     for (let k=0;k<strands;k++){
-      const [ox,oy,ph] = strandSeed[k];
-      const wob = .25*Math.sin(t*.6+ph+pi);                                // strands breathe slowly inside the bundle
-      const cx = rC.x+(rSide.x*(ox+wob*oy)+rUp.x*oy)*width, cy = rC.y+(rSide.y*(ox+wob*oy)+rUp.y*oy)*width, cz = rC.z+(rSide.z*(ox+wob*oy)+rUp.z*oy)*width;
-      rTmp.set(cx,cy,cz);
-      for (let j=0;j<=n;j++){ const s = j/n; bez(s,rTmp,rP);
+      const o = strands>1 ? k/(strands-1)*2-1 : 0;                                   // −1 … 1 across the band
+      const wob = .12*Math.sin(t*.5+k*1.3+pi);                                       // slow drift inside the band
+      P0.copy(pa).addScaledVector(tA,RA*.8).addScaledVector(oA,o*RA*RLINK.port);
+      P3.copy(pb).addScaledVector(tB,-RB*.8).addScaledVector(oB,o*RB*RLINK.port);
+      P1.copy(P0).addScaledVector(tA,lA).addScaledVector(oA,(o+wob)*RA*RLINK.port*fan);
+      P2.copy(P3).addScaledVector(tB,-lB).addScaledVector(oB,(o-wob)*RB*RLINK.port*fan);
+      for (let j=0;j<=n;j++){ const s = j/n; cub(s,P0,P1,P2,P3,rP);
         bp[nb*3] = rP.x; bp[nb*3+1] = rP.y; bp[nb*3+2] = rP.z;
-        const a = base*(.45+.55*Math.sin(Math.PI*s))*fadeAt(rP);
+        const a = base*(.6+.4*Math.sin(Math.PI*s))*fadeAt(rP);
         bc[nb*3] = (cA.r+(cB.r-cA.r)*s)*a; bc[nb*3+1] = (cA.g+(cB.g-cA.g)*s)*a; bc[nb*3+2] = (cA.b+(cB.b-cA.b)*s)*a; nb++; }
-      for (let j=0;j<nP;j++){ let u = (j/nP+k*.137+t*v)%1; if (!fwd) u = 1-u; bez(u,rTmp,rP);
+      for (let j=0;j<nP;j++){ let u = (j/nP+k*.137+t*v)%1; if (!fwd) u = 1-u; cub(u,P0,P1,P2,P3,rP);
         fp[nf*3] = rP.x; fp[nf*3+1] = rP.y; fp[nf*3+2] = rP.z;
         const a = Math.sin(Math.PI*u)*RLINK.pulseGlow*fadeAt(rP)/Math.sqrt(strands);
         fc[nf*3] = Math.min(1,(cA.r+(cB.r-cA.r)*u)*a+.25*a); fc[nf*3+1] = Math.min(1,(cA.g+(cB.g-cA.g)*u)*a+.25*a); fc[nf*3+2] = Math.min(1,(cA.b+(cB.b-cA.b)*u)*a+.25*a); nf++; }
     }
-    if (hot) for (const [N,c] of [[rA,cA],[rB,cB]]){ fp[nf*3] = N.x; fp[nf*3+1] = N.y; fp[nf*3+2] = N.z;   // where the bundle leaves the sphere
-      fc[nf*3] = c.r*.6; fc[nf*3+1] = c.g*.6; fc[nf*3+2] = c.b*.6; nf++; }
   });
   rBeads.geometry.setDrawRange(0,nb); rFlow.geometry.setDrawRange(0,nf);
   for (const g of [rBeads.geometry,rFlow.geometry]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
