@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '26';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '27';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -42,7 +42,7 @@ const state = {
   dioOnTable: false, dioI: null, dioJ: null, dioN: 1, grid: true, room: true, gridLift: 0, gridLinked: false, dioQ: null,
   dioView: 'persp', dioYaw: .6, view2D: 'top',   // table diorama: tilt preset + turn · window 2D view while it is on the table
   stick: false, boardOff: [0,0,0],                // joystick shown · landing moved by the joystick from its default spot: [right, up, forward] m
-  winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
+  winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
@@ -267,14 +267,17 @@ const dioCardP = panel({name:'diorama card',x:441.5,y:103.5,w:639,h:581,z:.006,d
     text(ctx,on?'ALL LINKS':'SELECTED',x+48,cy+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
     p.region('links',x-6,y-8,w+12,h+16,()=>{ state.allLinks = !state.allLinks; p.dirty = true; }); }
   // bring the diorama into the room: onto the table grid, and back into the window
-  { const x = 290, y = 14, w = 150, h = 34, on = state.dioOnTable, hot = p.hover==='table';
+  { const x = 290, y = 14, w = 150, h = 34, on = dioView ? state.dioOnTable : state.maniOnTable, hot = p.hover==='table';
     ctx.save(); if (hot) { ctx.shadowColor = C.pink; ctx.shadowBlur = 12; }
     rr(ctx,x,y,w,h,17); ctx.fillStyle = C.card; ctx.fill(); ctx.restore();
     rr(ctx,x,y,w,h,17); ctx.lineWidth = 1.5; ctx.strokeStyle = hot?C.pink:'#4b4470'; ctx.stroke();
     const ink = hot ? C.pink : C.ink;
     drawIcon(ctx,'desk',ink,x+22,y+h/2,18);
     text(ctx,on?'BACK TO WINDOW':'PLACE ON TABLE',x+38,y+h/2+1,{font:'800 12px Manrope',color:ink,ls:'.4px'});
-    p.region('table',x-4,y-8,w+8,h+16,()=>{ state.dioOnTable ? dioToWindow() : dioToTable(); toast(state.dioOnTable?'Diorama on the table · pinch it to move, pull a corner to scale':'Diorama back in its window'); }); }
+    p.region('table',x-4,y-8,w+8,h+16,()=>{
+      if (!dioView) { if (!MANI_DATA) return; state.maniOnTable ? maniToWindow() : maniToTable();
+        toast(state.maniOnTable?'Manifold on the table · drag it to turn and tilt, two hands to zoom, pinch its frame to move':'Manifold back in its window'); return; }
+      state.dioOnTable ? dioToWindow() : dioToTable(); toast(state.dioOnTable?'Diorama on the table · pinch it to move, pull a corner to scale':'Diorama back in its window'); }); }
   cutWindow(ctx,441.5,103.5);
   rr(ctx,WIN.x-441.5,WIN.y-103.5,WIN.w,WIN.h,WIN.r); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3b3672'; ctx.stroke();
 }});
@@ -372,7 +375,7 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
   ['house','house','Default layout',()=>{ state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; applyManiPose(); place(); placeGrid(); toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -1212,6 +1215,8 @@ function dragUpdate(s,o,d){
   if (s.drag.kind==='maniSpin') { maniSpinUpdate(s,o,d); return; }
   const p = rayOnGrid(o,d); if (!p) return;
   const dr = s.drag;
+  if (dr.kind==='maniMove') { const n = MANI_T.n;                          // the manifold follows the hand cell by cell
+    state.maniI = clampI(Math.round((p.x+DESK_W/2)/DESK.cell-n/2),n,DESK.cols); state.maniJ = clampI(Math.round((p.z+DESK_D/2)/DESK.cell-n/2),n,DESK.rows); layoutManiDesk(); return; }
   if (dr.kind==='dioRotate') { const da = wrapA(ringAngle(p)-dr.a0);
     if (dr.q0) state.dioQ = new THREE.Quaternion().setFromAxisAngle(Y_AXIS,da).multiply(dr.q0).toArray(); else state.dioYaw = dr.yaw0+da; return; }
   if (dr.kind==='dioMove') {
@@ -1304,7 +1309,7 @@ let tablePlaneLock = false;
 function dragEnd(s){
   const dr = s.drag; s.drag = null; dropFill.visible = dropEdge.visible = false;
   if (dr.kind==='stick') { stickP.dirty = true; return; }
-  if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale') return;
+  if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
   state.dioI = dr.i; state.dioJ = dr.j; state.dioN = dr.n; layoutDeskItem(dr.i,dr.j,dr.n,false);
 }
@@ -1479,23 +1484,55 @@ if (MANI_DATA) {
   }
   // invisible grab volume around the terrain (pinch-ray / mouse drag turns it)
   const grab = new THREE.Mesh(new THREE.CylinderGeometry(MANI.radius*1.05,MANI.radius*1.05,MANI.height*(hi-lo)+.06,32),new THREE.MeshBasicMaterial({visible:false}));
-  grab.position.y = (hi+lo)/2*vs; grab.userData.kind = 'maniSpin'; maniTurn.add(grab); mani.userData.grab = grab;
+  grab.position.y = (hi+lo)/2*vs; grab.userData.kind = 'maniSpin'; maniTurn.add(grab); mani.userData.grab = grab; mani.userData.lo = lo; mani.userData.hi = hi;
 }
-mani.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = winPlanes; m.needsUpdate = true; } });   // stays inside the window box
+const setManiClip = on => mani.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = on ? winPlanes : null; m.needsUpdate = true; } });
+setManiClip(true);                                                        // in the window it stays inside the box
+const maniWinPos = mani.position.clone();
 function applyManiPose(){ const z = state.maniZoom||1;
-  maniTurn.rotation.set(0,0,0); maniTurn.rotateX(state.maniTilt ?? MANI.tilt); maniTurn.rotateY(state.maniYaw||0); maniTurn.scale.setScalar(z); }
+  maniTurn.rotation.set(0,0,0); maniTurn.rotateX(state.maniTilt ?? (state.maniOnTable ? 0 : MANI.tilt)); maniTurn.rotateY(state.maniYaw||0); maniTurn.scale.setScalar(z);
+  if (state.maniOnTable) mani.position.set(0,-(mani.userData.lo||0)*MANI.height*z+MANI_T.lift,0); }   // on the table its lowest point sits just above the grid
+
+// ---- Manifold on the table: pulled out of the window into the room, a 2×2-cell hologram on the grid
+// it arrives level; drag turns / tilts it, two hands zoom it, pinch its frame on the grid to move it cell by cell
+const MANI_T = {n:2, lift:.015, frame:.035};                              // footprint in cells · gap above the grid · width of the move frame (m)
+const maniDesk = new THREE.Group(); maniDesk.name = 'manifold on table'; maniDesk.visible = false; deskGrid.add(maniDesk);
+const maniPads = [];
+{ const w = MANI_T.n*DESK.cell, f = MANI_T.frame, sq = new THREE.BufferGeometry().setFromPoints([[-1,-1],[1,-1],[1,-1],[1,1],[1,1],[-1,1],[-1,1],[-1,-1]].map(([x,z])=>new THREE.Vector3(x*w/2,.003,z*w/2)));
+  maniDesk.add(new THREE.LineSegments(sq,new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:.5,toneMapped:false})));
+  for (const [x,z,pw,pd] of [[0,-(w-f)/2,w,f],[0,(w-f)/2,w,f],[-(w-f)/2,0,f,w],[(w-f)/2,0,f,w]]) {     // invisible frame strips = move handle
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(pw,pd).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({visible:false}));
+    m.position.set(x,.004,z); m.userData.kind = 'maniMove'; maniDesk.add(m); maniPads.push(m); } }
+function layoutManiDesk(){ const n = MANI_T.n;
+  state.maniI = clampI(state.maniI ?? 0,n,DESK.cols); state.maniJ = clampI(state.maniJ ?? DESK.rows-n,n,DESK.rows);
+  maniDesk.position.set(cellCentre(state.maniI,n)-DESK_W/2,0,cellCentre(state.maniJ,n)-DESK_D/2); }
+function maniToTable(){
+  state.maniOnTable = true; maniInfo(null); maniDesk.add(mani); mani.rotation.set(0,0,0); state.maniTilt = 0;
+  layoutManiDesk(); setManiClip(false); applyManiPose(); dioCardP.dirty = true; maniCapP.dirty = true;
+}
+function maniToWindow(){
+  state.maniOnTable = false; maniInfo(null); board.add(mani); mani.position.copy(maniWinPos); mani.rotation.set(0,0,0); state.maniTilt = null;
+  setManiClip(true); applyManiPose(); dioCardP.dirty = true; maniCapP.dirty = true;
+}
 applyManiPose();
 // turning: drag on a plane facing the window through the terrain's centre — sideways turns, up / down tilts
 const maniPlane = new THREE.Plane(), maniHit = new THREE.Vector3(), maniN = new THREE.Vector3(), maniC = new THREE.Vector3(), maniInv = new THREE.Matrix4();
+const maniX = new THREE.Vector3(), maniY = new THREE.Vector3(0,1,0), maniM = new THREE.Matrix4();
 function maniSpinStart(s,point){
-  board.updateMatrixWorld(); maniN.set(0,0,1).transformDirection(board.matrixWorld); mani.getWorldPosition(maniC);
-  maniPlane.setFromNormalAndCoplanarPoint(maniN,maniC); maniInv.copy(board.matrixWorld).invert();
+  mani.getWorldPosition(maniC);
+  if (state.maniOnTable) {                                                // on the table: a level plane facing the viewer
+    (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(maniN); maniN.sub(maniC); maniN.y = 0;
+    if (maniN.lengthSq()<1e-6) maniN.set(0,0,1); maniN.normalize(); maniX.crossVectors(maniY,maniN);
+    maniInv.copy(maniM.makeBasis(maniX,maniY,maniN).setPosition(maniC)).invert();
+  } else { board.updateMatrixWorld(); maniN.set(0,0,1).transformDirection(board.matrixWorld); maniInv.copy(board.matrixWorld).invert(); }
+  maniPlane.setFromNormalAndCoplanarPoint(maniN,maniC);
   const p0 = point.clone().applyMatrix4(maniInv);
-  s.drag = {kind:'maniSpin',plane:maniPlane.clone(),inv:maniInv.clone(),p0,yaw0:state.maniYaw||0,tilt0:state.maniTilt ?? MANI.tilt};
+  s.drag = {kind:'maniSpin',plane:maniPlane.clone(),inv:maniInv.clone(),p0,yaw0:state.maniYaw||0,tilt0:state.maniTilt ?? (state.maniOnTable ? 0 : MANI.tilt),
+    k:state.maniOnTable ? MANI.spin : MANI.spin/(boardRoot.scale.x||1)};
 }
 function maniSpinUpdate(s,o,d){
   const dr = s.drag; raycaster.set(o,d); if (!raycaster.ray.intersectPlane(dr.plane,maniHit)) return;
-  maniHit.applyMatrix4(dr.inv); const dx = maniHit.x-dr.p0.x, dy = maniHit.y-dr.p0.y, k = MANI.spin/(boardRoot.scale.x||1);
+  maniHit.applyMatrix4(dr.inv); const dx = maniHit.x-dr.p0.x, dy = maniHit.y-dr.p0.y, k = dr.k;
   state.maniYaw = dr.yaw0+dx*k; state.maniTilt = Math.max(-.2,Math.min(Math.PI/2,dr.tilt0-dy*k)); applyManiPose();
 }
 // two hands: while one hand turns it, pinch with the other and open / close the hands to zoom
@@ -1534,6 +1571,7 @@ const maniPopP = panel({name:'manifold info',x:0,y:0,w:MANI_POP.w,h:MANI_POP.h,m
 maniPopP.mesh.visible = false;
 function maniInfo(pin){
   maniOpen = maniOpen===pin ? null : pin; maniPopP.mesh.visible = !!maniOpen; maniPopP.dirty = true;
+  const home = state.maniOnTable ? scene : board; if (maniPopP.mesh.parent!==home) home.add(maniPopP.mesh);   // on the table it floats in the room
   for (const q of maniPins) { const on = q===maniOpen; q.head.scale.setScalar(on?1.5:1); q.glow.material.opacity = on?1:.7; }
 }
 const popW = new THREE.Vector3();
@@ -1541,18 +1579,22 @@ function updateManifold(t,visible){
   mani.visible = visible;
   if (!visible) { if (maniOpen) maniInfo(null); return; }
   for (const q of maniPins) if (q!==maniOpen) q.glow.material.opacity = .55+.25*Math.sin(t*2+q.x);
-  if (maniOpen) {                                                             // keep the pop-up beside its pin, on the glass
+  if (maniOpen && state.maniOnTable) {                                        // in the room: above the pin, turned to the viewer
+    maniOpen.head.getWorldPosition(popW); maniPopP.mesh.position.copy(popW); maniPopP.mesh.position.y += MANI_POP.h/2*S+.03;
+    (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(popW); maniPopP.mesh.lookAt(popW);
+  } else if (maniOpen) {                                                      // keep the pop-up beside its pin, on the glass
     maniOpen.head.getWorldPosition(popW); board.worldToLocal(popW);
     const half = MANI_POP.w/2*S, side = popW.x>(WIN.x+WIN.w/2-BW/2)*S ? -1 : 1;
     maniPopP.mesh.position.set(popW.x+side*(half+.012),popW.y+MANI_POP.h/2*S+.012,.02);   // above and beside the pin, never over it
   }
 }
 // a quiet caption at the window's bottom-left: this is old data
-const maniCapP = panel({name:'manifold caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:330,h:26,margin:8,z:.012,draw(ctx){
-  rr(ctx,0,0,330,26,13); ctx.fillStyle = 'rgba(35,32,66,.85)'; ctx.fill();
-  text(ctx,'CONCEPT · OLD DATA · 5H · 03 SEP – 19 OCT 2026',165,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
+const maniCapP = panel({name:'manifold caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:430,h:26,margin:8,z:.012,draw(ctx){
+  rr(ctx,0,0,430,26,13); ctx.fillStyle = 'rgba(35,32,66,.85)'; ctx.fill();
+  text(ctx,(state.maniOnTable?'ON THE TABLE · ':'')+'CONCEPT · OLD DATA · 5H · 03 SEP – 19 OCT 2026',215,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
 }});
 maniCapP.mesh.visible = false;
+if (state.maniOnTable && MANI_DATA) maniToTable(); else state.maniOnTable = false;
 
 // ---------------------------------------------------------------- placement
 const tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
@@ -1581,7 +1623,7 @@ function targets(){ const list = []; for (const p of panels) if (p.mesh.visible 
   if (state.dioOnTable && dio.visible) { list.push(itemPad,rotRing.userData.hit); for (const c of corners) list.push(c.hit); }
   if (deskGrid.visible) list.push(...gridFrame);
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit);
-  if (mani.visible && board.visible && mani.userData.grab) { list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit); }
+  if (mani.visible && (board.visible || state.maniOnTable) && mani.userData.grab) { list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit); if (state.maniOnTable) list.push(...maniPads); }
   return list; }
 function pick(origin,dir){
   raycaster.set(origin,dir); raycaster.far = 6;
@@ -1617,6 +1659,7 @@ function press(source,hit){
   if (hit.currency) { setCurrency(hit.currency); return; }
   if (hit.kind==='maniPin') { maniInfo(hit.object.userData.pin); return; }
   if (hit.kind==='maniSpin') { maniSpinStart(source,hit.point); return; }
+  if (hit.kind==='maniMove') { source.drag = {kind:'maniMove'}; return; }
   if (hit.kind) { dragStart(source,hit); return; }
   if (hit.panel===stickP && (hit.region?.id==='pad' || hit.region?.id==='lift')) { stickStart(source,hit.region.id); return; }
   if (hit.region) { source.pressed = {panel:hit.panel,id:hit.region.id}; hit.panel.press = hit.region.id; hit.panel.dirty = true; return; }
@@ -1685,7 +1728,7 @@ function updateXRInput(){
       if (local.z>.03) dragEnd(s); else { stickFromLocal(s.drag,local); s.tip.visible = true; continue; } }
     let best = null;
     for (const m of marbles) if ((board.visible||state.dioOnTable) && dio.visible && m.hit.getWorldPosition(local).distanceTo(tipPos)<.022) best = {currency:m.cur,touch:true};
-    if (!best && mani.visible && board.visible) for (const q of maniPins) if (q.head.getWorldPosition(local).distanceTo(tipPos)<.02) best = {maniPin:q,touch:true};
+    if (!best && mani.visible && (board.visible || state.maniOnTable)) for (const q of maniPins) if (q.head.getWorldPosition(local).distanceTo(tipPos)<.02) best = {maniPin:q,touch:true};
     if (!best) for (const p of panels) {
       if (!p.mesh.visible || !p.mesh.parent.visible || !p.regions.length || p.name==='toast') continue;
       p.mesh.worldToLocal(local.copy(tipPos));
@@ -1744,7 +1787,8 @@ renderer.setAnimationLoop((now,frame)=>{
   const wSeen = windowSeen(), seen = state.dioOnTable || wSeen, maniView = state.winView==='manifold';
   winBox.visible = wSeen && (!state.dioOnTable || maniView); winTank.visible = !maniView; viewPlane.visible = state.dioOnTable && !maniView;
   dio.visible = !state.hidden && seen && (state.dioOnTable || !maniView); deskItem.visible = state.dioOnTable && !state.hidden;
-  updateManifold(t,maniView && !state.hidden && wSeen && !!MANI_DATA); maniCapP.mesh.visible = maniView && !!MANI_DATA;
+  maniDesk.visible = state.maniOnTable && !state.hidden;
+  updateManifold(t,!state.hidden && !!MANI_DATA && (state.maniOnTable || (maniView && wSeen))); maniCapP.mesh.visible = maniView && !!MANI_DATA;
   const minute = new Date().getMinutes()+':'+new Date().getDate();
   if (minute!==lastMinute) { lastMinute = minute; clocksP.dirty = dateP.dirty = newsP.dirty = true; }
   if (toastMsg && now>toastUntil) { toastMsg = ''; toastP.mesh.visible = false; }
