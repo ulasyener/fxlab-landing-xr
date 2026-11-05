@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '27';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '28';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -929,7 +929,7 @@ for (const m of marbles) {
 // Grid: 2 m × 1 m in real size, fixed 25 cm cells (8 × 4). Origin at the grid centre on the table surface,
 // x along the 2 m side, +z toward the user, y up. Each visualisation arrives one cell in size (1x) and
 // scales from its corner nodes in whole-cell steps.
-const DESK = {cols:8, rows:4, cell:.25, maxN:4, lineA:.16, borderA:.42, crossA:.5, glowR:.2, tableH:.74, ahead:.72};
+const DESK = {cols:8, rows:4, cell:.25, maxN:4, lineA:.16, borderA:.42, crossA:.5, glowR:.2, tableH:.74, ahead:.72, belowBoard:.08};   // belowBoard: without a detected table the grid starts this far under the window's bottom edge
 const DESK_W = DESK.cols*DESK.cell, DESK_D = DESK.rows*DESK.cell;
 const deskGrid = new THREE.Group(); deskGrid.name = 'table grid'; scene.add(deskGrid);
 const deskLines = new THREE.Group(); deskGrid.add(deskLines);      // what the GRID toggle hides
@@ -1172,6 +1172,9 @@ function placeGrid(){
     deskGrid.position.copy(head).addScaledVector(dir,DESK.ahead); deskGrid.position.y = DESK.tableH;
     deskGrid.rotation.set(0,Math.atan2(-dir.x,-dir.z),0); gridOnTable = false;
   } else { deskGrid.position.set(0,1.0,.62); deskGrid.rotation.set(0,0,0); gridOnTable = false; }   // desktop preview
+  if (!gridOnTable) {                                                     // no real table: never above the window's bottom edge
+    boardRoot.updateMatrixWorld(); const bottom = boardRoot.localToWorld(new THREE.Vector3(0,-BH/2*S,0)).y;
+    deskGrid.position.y = Math.min(deskGrid.position.y,bottom-DESK.belowBoard); }
   deskGrid.position.y += state.gridLift||0;
   gridPlacedAt = performance.now(); relinkGrid();
 }
