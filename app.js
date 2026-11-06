@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '43';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '44';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -45,7 +45,7 @@ const state = {
   winView: 'diorama', maniYaw: 0, maniTilt: null, maniZoom: 1, maniOnTable: false, maniI: null, maniJ: null, maniRoom: false,   // diorama window: which visualisation · manifold hologram turn, tilt, zoom
   ribbonYaw: 0, ribbonTilt: .12, ribbonRoom: false, ribbonFrame: null, ribbonMode: 'read',   // Data Arbor: read · draw paths · sculpt linked nodes · expand around the user
   stickTurn: false, boardRot: [0,0],              // joystick in angle mode · landing turned / tilted by the joystick: [turn, tilt] rad
-  gridCols: 8, gridRows: 4, gridOff: false, gridFloor: false, gridTableY: null, gridBlocks: {},   // … · grid lowered to the floor (and its table height to go back to) · raised cells {'i,j': height m}     // table grid size in 25 cm cells (pulled from its edges / corners) · whole table grid switched off
+  gridCols: 8, gridRows: 4, gridOff: false, gridFloor: false, gridTableY: null, gridBlocks: {}, gridScale: 1,   // gridScale: the whole table shrunk to a maquette (1, .5, .2, .1, .05) · … · grid lowered to the floor (and its table height to go back to) · raised cells {'i,j': height m}     // table grid size in 25 cm cells (pulled from its edges / corners) · whole table grid switched off
   roomOn: false, roomPaused: false, roomCoins: null, roomMin: false,   // roomMin: main screen folded into the small widget   // room orbit: coins circle the user · orbits stopped · per coin [orbit radius m, angle rad, height from the head m]
 };
 try { Object.assign(state, JSON.parse(localStorage.getItem('fxlab-landing') || '{}'), {hidden:false}); } catch {}
@@ -395,8 +395,8 @@ const simP = panel({name:'simulator',x:1173.5,y:400.4,w:273,h:396,z:.006,fps:20,
 // ---------------------------------------------------------------- bottom bar + toast
 const BAR = [
   ['eye','eye','Hide / show all',()=>{ state.hidden = !state.hidden; board.visible = !state.hidden; }],
-  ['house','house','Default layout',()=>{ if(state.ribbonRoom)ribbonFromRoom(); state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; state.ribbonYaw = 0; state.ribbonTilt = .12; state.ribbonMode='read'; applyManiPose(); place(); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); dioCardP.dirty=ribbonCapP.dirty=true; toast('Back to the default layout'); }],
-  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,ribbonYaw:state.ribbonYaw,ribbonTilt:state.ribbonTilt,ribbonFrame:state.ribbonFrame,ribbonMode:state.ribbonMode,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin,gridCols:state.gridCols,gridRows:state.gridRows,gridOff:state.gridOff,gridFloor:state.gridFloor,gridTableY:state.gridTableY,gridBlocks:state.gridBlocks})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
+  ['house','house','Default layout',()=>{ if(state.ribbonRoom)ribbonFromRoom(); state.scale = 1; state.desk = false; state.boardOff = [0,0,0]; state.boardRot = [0,0]; state.maniYaw = 0; state.maniTilt = null; state.maniZoom = 1; state.ribbonYaw = 0; state.ribbonTilt = .12; state.ribbonMode='read'; applyManiPose(); place(); if (deskGrid.scale.x!==1) setGridScale(1); placeGrid(); state.roomPaused = false; pauseP.dirty = true; roomDefaults(); dioCardP.dirty=ribbonCapP.dirty=true; toast('Back to the default layout'); }],
+  ['save','bookmark-simple','Save',()=>{ try{ localStorage.setItem('fxlab-landing',JSON.stringify({horizon:state.horizon,currency:state.currency,scale:state.scale,desk:state.desk,allLinks:state.allLinks,dioOnTable:state.dioOnTable,dioI:state.dioI,dioJ:state.dioJ,dioN:state.dioN,grid:state.grid,room:state.room,gridLift:state.gridLift,gridLinked:state.gridLinked,dioQ:state.dioQ,dioView:state.dioView,dioYaw:state.dioYaw,view2D:state.view2D,boardOff:state.boardOff,boardRot:state.boardRot,stickTurn:state.stickTurn,winView:state.winView,maniYaw:state.maniYaw,maniTilt:state.maniTilt,maniZoom:state.maniZoom,maniOnTable:state.maniOnTable,maniI:state.maniI,maniJ:state.maniJ,ribbonYaw:state.ribbonYaw,ribbonTilt:state.ribbonTilt,ribbonFrame:state.ribbonFrame,ribbonMode:state.ribbonMode,roomOn:state.roomOn,roomPaused:state.roomPaused,roomCoins:state.roomCoins,roomMin:state.roomMin,gridCols:state.gridCols,gridRows:state.gridRows,gridOff:state.gridOff,gridFloor:state.gridFloor,gridTableY:state.gridTableY,gridBlocks:state.gridBlocks,gridScale:state.gridScale})); toast('Layout saved on this headset'); }catch{ toast('Saving is not available in this browser'); } }],
   ['info','info','Info',()=>toast(`${dataMode==='HELD'?'HELD OBSERVATIONS':'FIXTURE (old held sample)'} · UPSTREAM FRESHNESS UNVERIFIED${takenAt?' · snapshot '+utcLabel(takenAt):''}`,6000)],
   ['settings','gear-six','Settings',()=>{ const s = [.8,.9,1,1.1]; state.scale = s[(s.indexOf(state.scale)+1)%s.length]||1; boardRoot.scale.setScalar(state.scale); toast(`Size ${Math.round(state.scale*100)} %`); }],
   ['desk','desk','Table / in the air',()=>{ state.desk = !state.desk; place(); toast(state.desk?'Lying on the table':'Standing in the air'); }],
@@ -1281,6 +1281,7 @@ const corners = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sz])=>{
   glow.scale.setScalar(.05); ball.add(glow);
   const hit = new THREE.Mesh(new THREE.SphereGeometry(.03,10,8),new THREE.MeshBasicMaterial({visible:false}));
   hit.userData.kind = 'dioScale'; hit.userData.corner = [sx,sz]; ball.add(hit);
+  ball.visible = false;                                                  // build 44: resizing by gesture or the object tools instead
   deskItem.add(ball); return {ball,glow,hit,sx,sz};
 });
 const holder3D = new THREE.Group(); deskItem.add(holder3D);           // the diorama is re-parented here
@@ -1305,6 +1306,7 @@ function layoutDeskItem(i,j,n,instant){
   if (instant) { dio.position.set(0,dio.userData.lift,0); dio.quaternion.copy(state.dioQ ? qH.fromArray(state.dioQ) : tableTargetQ()); }
   rotRing.scale.setScalar(w); knob.scale.setScalar(1/w);
   tableViewP.mesh.position.set(0,.02,w/2+.07);
+  const u = 1/(deskGrid.scale.x||1); dioToolP.mesh.scale.setScalar(u); dioToolP.mesh.position.set(0,.02*u,w/2+.07*u); dioToolP.dirty = true;
 }
 function tableTargetQ(){ dioEuler.set(tableView().tilt,state.dioYaw||0,0,'XYZ'); return dioTargetQ.setFromEuler(dioEuler); }   // turn about its own up axis, then tilt toward the user
 function setDioClip(on){ dio.traverse(o=>{ if (o.material) for (const m of [o.material].flat()) { m.clippingPlanes = on ? winPlanes : null; m.needsUpdate = true; } }); }
@@ -1313,10 +1315,10 @@ function dioToTable(){
   if (state.dioQ || state.dioView!=='persp') { state.dioQ = null; state.dioView = 'persp'; tableViewP.dirty = true; }   // always arrives level: coins' zero on the water surface
   const n = Math.min(DESK.maxN,state.dioN||1);
   state.dioN = n; state.dioI = Math.min(DESK.cols-n,state.dioI ?? Math.floor((DESK.cols-n)/2)); state.dioJ = Math.min(DESK.rows-n,state.dioJ ?? DESK.rows-n);
-  layoutDeskItem(state.dioI,state.dioJ,n,true); setDioClip(false); dioCardP.dirty = true;
+  layoutDeskItem(state.dioI,state.dioJ,n,true); setDioClip(false); dioCardP.dirty = true; showDioTools(true);
 }
 function dioToWindow(){
-  state.dioOnTable = false; deskItem.visible = false; board.add(dio);
+  state.dioOnTable = false; deskItem.visible = false; board.add(dio); showDioTools(false);
   dio.position.copy(dioWindowPose.pos); dio.rotation.set(dioWindowPose.rotX,0,0); dio.scale.setScalar(dioWindowPose.scale);
   setDioClip(true); dioCardP.dirty = true;
 }
@@ -1332,6 +1334,7 @@ const rotRing = new THREE.Group(); rotRing.position.y = .006; deskItem.add(rotRi
 const knob = new THREE.Mesh(new THREE.SphereGeometry(.008,16,10),new THREE.MeshBasicMaterial({color:'#fff3ff',toneMapped:false}));
 { const g = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:C.pink,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
   g.scale.setScalar(.045); knob.add(g); } rotRing.add(knob);
+rotRing.visible = false;                                                 // build 44: turning by gesture or the object tools instead
 
 // tilt presets strip, at the item's front edge, tilted toward the user
 const tableViewP = panel({name:'table views',x:0,y:0,w:262,h:52,margin:8,parent:deskItem,z:0,draw(ctx,p){
@@ -1346,6 +1349,37 @@ const tableViewP = panel({name:'table views',x:0,y:0,w:262,h:52,margin:8,parent:
   });
 }});
 tableViewP.mesh.rotation.x = -1.05; tableViewP.mesh.visible = false;   // no TOP / FRONT / PERSP on the table: it stays level with the water, the user walks around it
+
+// ---- object tools (build 44): tap or pinch the diorama on the table to select it; a small bar appears at its front edge —
+// smaller / bigger in whole cells (1×–4×), turn left / right in 45° steps, close. The same with two hands: hold it with one
+// hand, pinch with the other, open / close the hands to resize, twist them to turn. (The turning ring and the corner
+// nodes of earlier builds are gone.)
+const TURN_STEP = Math.PI/4;
+const dioMaxN = () => Math.min(DESK.maxN,DESK.rows,DESK.cols);
+const dioToolP = panel({name:'object tools',x:0,y:0,w:300,h:52,margin:8,parent:deskItem,z:0,draw(ctx,p){
+  rr(ctx,0,0,300,52,26); ctx.fillStyle = 'rgba(35,32,66,.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#3d3762'; ctx.stroke();
+  const n = state.dioN||1;
+  circleButton(ctx,p,'smaller',30,26,34,'minus',()=>stepDio(-1),{iconColor:n<=1?C.dim:C.ink});
+  text(ctx,`${n}×`,76,27,{font:'600 15px "Kode Mono"',color:C.ink,align:'center'});
+  circleButton(ctx,p,'bigger',122,26,34,'plus',()=>stepDio(1),{iconColor:n>=dioMaxN()?C.dim:C.ink});
+  ctx.fillStyle = '#3d3762'; ctx.fillRect(151,14,1.5,24);
+  circleButton(ctx,p,'turnL',182,26,34,'arrow-counter-clockwise',()=>turnDio(1));
+  circleButton(ctx,p,'turnR',228,26,34,'arrow-clockwise',()=>turnDio(-1));
+  circleButton(ctx,p,'toolsOff',272,26,34,'x-circle',()=>showDioTools(false),{iconColor:C.muted});
+}});
+dioToolP.mesh.rotation.x = -1.05; dioToolP.mesh.visible = false;
+function showDioTools(on){ state.dioSel = !!on; dioToolP.mesh.visible = !!on && state.dioOnTable; dioToolP.dirty = true; }
+function stepDio(d){
+  const n0 = state.dioN||1, n = Math.max(1,Math.min(dioMaxN(),n0+d)); if (n===n0) return;
+  const ci = state.dioI+n0/2, cj = state.dioJ+n0/2;                     // keeps its centre where it can
+  state.dioN = n; state.dioI = clampI(Math.round(ci-n/2),n,DESK.cols); state.dioJ = clampI(Math.round(cj-n/2),n,DESK.rows);
+  layoutDeskItem(state.dioI,state.dioJ,n,false); freeLift(); dioToolP.dirty = true; toast(`${n}× · ${n*25} cm`,1200);
+}
+const snapTurn = a => Math.round(a/TURN_STEP)*TURN_STEP;
+function turnDio(dir){
+  state.dioQ = null; state.dioView = 'persp'; state.dioYaw = wrapA(snapTurn((state.dioYaw||0)+dir*TURN_STEP));
+  toast(`${Math.round(((state.dioYaw*180/Math.PI)%360+360)%360)}°`,1000);
+}
 function setTableView(id){
   state.dioView = id; state.dioQ = null; state.dioYaw = id==='persp' ? (Math.abs(state.dioYaw)<.05 ? .6 : state.dioYaw) : 0;
   freeLift(); tableViewP.dirty = true;
@@ -1501,8 +1535,26 @@ let gridHeld = false;                                                   // the g
 const linkRel = {pos:new THREE.Vector3(), yaw:0};
 const lV = new THREE.Vector3(), lQ = new THREE.Quaternion(), lE = new THREE.Euler();
 function boardYaw(){ boardRoot.getWorldQuaternion(lQ); return lE.setFromQuaternion(lQ,'YXZ').y; }
+// Linked = a desk and its monitor (build 44): the grid is the table top, the landing stands on its back edge, centred,
+// facing the user and leaned back a little. Whenever the grid changes (placed, lifted, resized, scaled) the landing is put
+// back on that edge; when the landing is carried, the grid follows it with that same offset.
+const Y_AXIS = new THREE.Vector3(0,1,0);
+let gridTwoOn = false;                                                  // two hands hold the grid (scale / carry)
+const DESK_LINK = {gap:.03, lean:.12, back:.02};   // bottom edge this far above the table top (m) · leaned back (rad) · this far behind the back edge (m)
+const lUp = new THREE.Vector3(), lBack = new THREE.Vector3();
+function alignBoardToGrid(){
+  deskGrid.updateMatrixWorld();
+  const y = deskGrid.rotation.y, h = BH*S*boardRoot.scale.x;
+  const edge = deskGrid.localToWorld(lV.set(0,0,-DESK_D/2));             // middle of the back edge (the side away from the user)
+  lBack.set(-Math.sin(y),0,-Math.cos(y));
+  boardRoot.rotation.set(0,0,0); boardRoot.rotateY(y); boardRoot.rotateX(-DESK_LINK.lean);
+  lUp.set(0,1,0).applyQuaternion(boardRoot.quaternion);
+  boardRoot.position.copy(edge).addScaledVector(lBack,DESK_LINK.back).addScaledVector(Y_AXIS,DESK_LINK.gap).addScaledVector(lUp,h/2);
+  boardRoot.updateMatrixWorld();
+}
 function relinkGrid(){
   if (!state.gridLinked) return;
+  if (!gridHeld || gridTwoOn) alignBoardToGrid();
   boardRoot.updateMatrixWorld(); boardRoot.getWorldPosition(lV); const y = boardYaw();
   linkRel.pos.copy(deskGrid.position).sub(lV).applyAxisAngle(Y_AXIS,-y); linkRel.yaw = deskGrid.rotation.y-y;
 }
@@ -1511,9 +1563,9 @@ function followBoard(){
   boardRoot.updateMatrixWorld(); boardRoot.getWorldPosition(lV); const y = boardYaw();
   deskGrid.position.copy(linkRel.pos).applyAxisAngle(Y_AXIS,y).add(lV); deskGrid.rotation.set(0,y+linkRel.yaw,0);
 }
-function setGridLinked(on){ state.gridLinked = on; relinkGrid(); deskCtlP.dirty = true;
-  toast(on?'Table linked to the window · they move together':'Table apart · pinch the grid edge to move it'); }
-const Y_AXIS = new THREE.Vector3(0,1,0);
+function setGridLinked(on){ state.gridLinked = on; if (on) tablePlaneLock = true;     // linked: a table found later no longer moves the pair
+  relinkGrid(); deskCtlP.dirty = true;
+  toast(on?'Landing on the table · they move together':'Table apart · pinch the grid edge to move it'); }
 // grid edge: an invisible frame around the grid to pinch and carry the table on its own
 const gridFrame = [], GF = .08;
 { const mat = new THREE.MeshBasicMaterial({visible:false}), geo = new THREE.PlaneGeometry(1,1);
@@ -1531,12 +1583,16 @@ const sizeNodes = [[-1,-1],[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0]].map(([
   gridHandles.add(ball); return {ball,glow,hit,sx,sz};
 });
 function layoutGridChrome(){
-  const hx = DESK_W/2, hz = DESK_D/2;
-  [[DESK_W+2*GF,GF,0,-hz-GF/2],[DESK_W+2*GF,GF,0,hz+GF/2],[GF,DESK_D,-hx-GF/2,0],[GF,DESK_D,hx+GF/2,0]].forEach(([w,d,x,z],k)=>{
-    const m = gridFrame[k]; m.scale.set(w,d,1); m.position.set(x,.004,z); });
-  for (const n of sizeNodes) n.ball.position.set(n.sx*hx,.008,n.sz*hz);
-  deskCtlP.mesh.position.set(-hx+.26,.02,hz+.10);                       // a little out from the near edge: clear of the size nodes
+  const hx = DESK_W/2, hz = DESK_D/2, u = 1/(deskGrid.scale.x||1), gf = GF*u;   // u: handles keep their size in the room on a shrunk table
+  [[DESK_W+2*gf,gf,0,-hz-gf/2],[DESK_W+2*gf,gf,0,hz+gf/2],[gf,DESK_D,-hx-gf/2,0],[gf,DESK_D,hx+gf/2,0]].forEach(([w,d,x,z],k)=>{
+    const m = gridFrame[k]; m.scale.set(w,d,1); m.position.set(x,.004*u,z); });
+  for (const n of sizeNodes) { n.ball.position.set(n.sx*hx,.008*u,n.sz*hz); n.ball.scale.setScalar(u); }
+  deskCtlP.mesh.scale.setScalar(u);
+  if (u>1) deskCtlP.mesh.position.set(0,.02*u,hz+.17*u);                // shrunk table: the strip sits centred under its near edge, past the object tools
+  else deskCtlP.mesh.position.set(-hx+.26,.02,hz+.10);                  // a little out from the near edge: clear of the size nodes
 }
+if (![1,.5,.2,.1,.05].includes(state.gridScale)) state.gridScale = 1;
+deskGrid.scale.setScalar(state.gridScale);   // a saved maquette scale
 layoutGridChrome();
 
 // ---- raised cells: in extrude mode the user taps / brushes cells to select them, then pulls the handle up — each selected
@@ -1752,7 +1808,8 @@ function handGrabStart(s){
   if (Math.abs(gp.x-c.x)>w/2+.04 || Math.abs(gp.z-c.z)>w/2+.04 || gp.y<-.03 || gp.y>w*1.2+.05) return false;
   const turn = !!j['wrist']?.visible && !!j['middle-finger-metacarpal']?.visible;
   s.drag = {kind:'dioGrab',i:state.dioI,j:state.dioJ,n:state.dioN,off:[gp.x-c.x,gp.z-c.z],y0:gp.y,
-    turn, h0:turn?handYaw(s):0, yaw0:state.dioYaw||0};
+    turn, h0:turn?handYaw(s):0, yaw0:state.dioYaw||0, i0:state.dioI,j0:state.dioJ,wasSel:!!state.dioSel,t0:performance.now()};
+  showDioTools(true);
   state.dioQ = null; state.dioView = 'persp';
   return true;
 }
@@ -1761,7 +1818,7 @@ function grabUpdate(s){
   pinchPoint(s,gp); const dr = s.drag, n = state.dioN, x = gp.x-dr.off[0], z = gp.z-dr.off[1];
   dr.i = clampI(Math.round((x+DESK_W/2)/DESK.cell-n/2),n,DESK.cols); dr.j = clampI(Math.round((z+DESK_D/2)/DESK.cell-n/2),n,DESK.rows); dr.n = n;
   deskItem.userData.target.set(x,Math.max(0,Math.min(.2,gp.y-dr.y0))+.015,z);          // lifts a little in the hand
-  if (dr.turn && j['wrist']?.visible && j['middle-finger-metacarpal']?.visible) {   // turning the hand turns the diorama about the vertical only: it stays level with the water
+  if (dr.turn && !sources.some(o=>o.drag?.kind==='dioPinchScale') && j['wrist']?.visible && j['middle-finger-metacarpal']?.visible) {   // turning the hand turns the diorama about the vertical only: it stays level with the water
     state.dioYaw = dr.yaw0+wrapA(handYaw(s)-dr.h0); dio.quaternion.copy(tableTargetQ()); }
   showDrop(dr);
 }
@@ -1772,14 +1829,22 @@ function pinchScaleStart(s){
   const j = s.hand?.joints; if (!j?.['index-finger-tip']?.visible || !j['thumb-tip']?.visible) return false;
   deskGrid.updateMatrixWorld(); invGrid.copy(deskGrid.matrixWorld).invert();
   const d0 = pinchPoint(s,gp2).distanceTo(pinchPoint(other,gp)); if (d0<.02) return false;
-  s.drag = {kind:'dioPinchScale',other,d0,n0:state.dioN}; return true;
+  const a0 = Math.atan2(gp2.x-gp.x,gp2.z-gp.z);                          // direction between the hands, seen from above
+  s.drag = {kind:'dioPinchScale',other,d0,n0:state.dioN,a0,yaw0:state.dioYaw||0,turning:false}; return true;
 }
 function pinchScaleUpdate(s){
   const dr = s.drag, o = dr.other, j = s.hand.joints;
   if (o.drag?.kind!=='dioGrab' || !j['index-finger-tip']?.visible || !j['thumb-tip']?.visible) { s.drag = null; return; }
   const d = pinchPoint(s,gp2).distanceTo(pinchPoint(o,gp));
-  const n = Math.max(1,Math.min(DESK.maxN,DESK.rows,Math.round(dr.n0*d/dr.d0)));
-  if (n!==state.dioN) { state.dioN = n; const g = o.drag; g.n = n; layoutDeskItem(g.i,g.j,n,false); freeLift(); toast(`${n}× · ${n*25} cm`,1200); }
+  const n = Math.max(1,Math.min(dioMaxN(),Math.round(dr.n0*d/dr.d0)));
+  if (n!==state.dioN) { state.dioN = n; const g = o.drag; g.n = n; layoutDeskItem(g.i,g.j,n,false); freeLift(); dioToolP.dirty = true; toast(`${n}× · ${n*25} cm`,1200); }
+  // twisting the hands turns it in 45° steps (a small twist while resizing is ignored)
+  const da = wrapA(Math.atan2(gp2.x-gp.x,gp2.z-gp.z)-dr.a0);
+  if (!dr.turning && Math.abs(da)>.2) dr.turning = true;
+  if (dr.turning) { const y = wrapA(snapTurn(dr.yaw0+da));
+    if (Math.abs(wrapA(y-(state.dioYaw||0)))>.01) { state.dioYaw = y; state.dioQ = null; toast(`${Math.round(((y*180/Math.PI)%360+360)%360)}°`,900); }
+    dio.quaternion.copy(tableTargetQ()); }
+  const g = o.drag; if (g.turn) { g.h0 = handYaw(o); g.yaw0 = state.dioYaw||0; }   // the holding hand takes over the turn smoothly afterwards
 }
 function dragStart(s,hit){
   if (hit.kind==='gridMove') { gridGrabStart(s); return; }
@@ -1788,7 +1853,7 @@ function dragStart(s,hit){
   if (hit.kind==='gridCell') { cellSelectStart(s,hit); return; }
   if (hit.kind==='dioRotate') { const p = hit.point.clone().applyMatrix4(invGrid.copy(deskGrid.matrixWorld).invert());
     s.drag = {kind:'dioRotate',a0:ringAngle(p),yaw0:state.dioYaw||0,q0:state.dioQ?new THREE.Quaternion().fromArray(state.dioQ):null}; return; }
-  if (hit.kind==='dioMove') s.drag = {kind:'dioMove',i:state.dioI,j:state.dioJ,n:state.dioN};
+  if (hit.kind==='dioMove') { s.drag = {kind:'dioMove',i:state.dioI,j:state.dioJ,n:state.dioN,i0:state.dioI,j0:state.dioJ,wasSel:!!state.dioSel,t0:performance.now()}; showDioTools(true); }
   else { const [sx,sz] = hit.object.userData.corner, w = state.dioN*DESK.cell;
     const cx = cellCentre(state.dioI,state.dioN)-DESK_W/2, cz = cellCentre(state.dioJ,state.dioN)-DESK_D/2;
     s.drag = {kind:'dioScale',sx,sz,anchor:[cx-sx*w/2,cz-sz*w/2],i:state.dioI,j:state.dioJ,n:state.dioN}; }
@@ -1796,8 +1861,56 @@ function dragStart(s,hit){
 // carry the grid on its own (apart), or the window with the grid (linked)
 function gridGrabStart(s){
   if (!s.controller) return;                                             // desktop mouse: no carrying
-  if (state.gridLinked) { s.controller.attach(boardRoot); s.grab = true; return; }
+  if (state.gridLinked) { s.controller.attach(boardRoot); s.grab = true; s.gridGrab = true; return; }
   s.controller.attach(deskGrid); gridHeld = true; s.drag = {kind:'gridMove'};
+}
+// ---- two hands on the grid (build 44): pinch the grid edge with one hand, then pinch with the other. Opening / closing the hands
+// scales the whole table — grid and everything standing on it — in maquette steps (1:1 … 1:20), so it can be held like a
+// hologram; moving the hands together carries it (also up and down). Let go with one hand and the other keeps carrying it.
+const GRID_SCALES = [1,.5,.2,.1,.05];
+const scaleLabel = k => k>=.999 ? '1:1' : `1:${Math.round(1/k)}`;
+function snapScale(v){ let best = GRID_SCALES[0];
+  for (const k of GRID_SCALES) if (Math.abs(Math.log(v/k))<Math.abs(Math.log(v/best))) best = k; return best; }
+const twA = new THREE.Vector3(), twB = new THREE.Vector3();
+function pinchWorld(s,out){
+  const j = s.hand?.joints;
+  if (j?.['index-finger-tip']?.visible && j['thumb-tip']?.visible) { j['index-finger-tip'].getWorldPosition(out); j['thumb-tip'].getWorldPosition(twB); return out.add(twB).multiplyScalar(.5); }
+  return out.setFromMatrixPosition(s.controller.matrixWorld);
+}
+function levelGrid(){ scene.attach(deskGrid); const e = new THREE.Euler().setFromQuaternion(deskGrid.quaternion,'YXZ'); deskGrid.rotation.set(0,e.y,0); }
+function levelBoard(){ scene.attach(boardRoot); const e = new THREE.Euler().setFromQuaternion(boardRoot.quaternion,'YXZ'); boardRoot.rotation.set(e.x,e.y,0,'YXZ'); }
+function gridTwoStart(s){
+  if (!s.controller?.visible) return false;
+  const other = sources.find(o=>o!==s && o.controller?.visible && (o.drag?.kind==='gridMove' || o.gridGrab)); if (!other) return false;
+  if (other.drag?.kind==='gridMove') levelGrid();                        // the grid goes back into the room: both hands hold it now
+  else { levelBoard(); other.grab = false; other.gridGrab = false; }
+  other.drag = {kind:'gridTwoHold'};
+  const a = pinchWorld(s,new THREE.Vector3()), b = pinchWorld(other,new THREE.Vector3());
+  const d0 = a.distanceTo(b); if (d0<.03) { other.drag = {kind:'gridMove'}; if (!state.gridLinked) other.controller.attach(deskGrid); return false; }
+  gridHeld = true; gridTwoOn = true; tablePlaneLock = true;
+  s.drag = {kind:'gridTwo',other,d0,s0:deskGrid.scale.x,mid0:a.add(b).multiplyScalar(.5),p0:deskGrid.position.clone()};
+  return true;
+}
+function gridTwoUpdate(s){
+  const dr = s.drag, o = dr.other;
+  if (o.drag?.kind!=='gridTwoHold' || !o.controller?.visible) { gridTwoEnd(s,null); return; }
+  pinchWorld(s,twA); const b = pinchWorld(o,new THREE.Vector3()), d = twA.distanceTo(b), mid = twA.add(b).multiplyScalar(.5);
+  const k = snapScale(dr.s0*d/dr.d0);
+  if (k!==deskGrid.scale.x) { setGridScale(k); toast(`Table ${scaleLabel(k)}`,1200); }
+  deskGrid.position.copy(dr.p0).sub(dr.mid0).multiplyScalar(k/dr.s0).add(mid);   // scales about the point between the hands, follows them
+  relinkGrid();
+}
+// one hand lets go: the other one keeps carrying the table (or the linked pair)
+function gridTwoEnd(two,survivor){
+  const o = two.drag?.other; two.drag = null; gridTwoOn = false; gridHeld = false;
+  if (o && o.drag?.kind==='gridTwoHold') o.drag = null;
+  relinkGrid(); gridPlacedAt = 0;
+  const keep = survivor ?? (o?.controller?.visible ? o : null);
+  if (keep && keep.controller?.visible) gridGrabStart(keep);
+}
+function setGridScale(k){
+  deskGrid.scale.setScalar(k); state.gridScale = k; layoutGridChrome();
+  if (state.dioOnTable) layoutDeskItem(state.dioI,state.dioJ,state.dioN,false);
 }
 function gridGrabEnd(s){
   scene.attach(deskGrid); const e = new THREE.Euler().setFromQuaternion(deskGrid.quaternion,'YXZ');
@@ -1812,9 +1925,12 @@ function dragEnd(s){
   if (dr.kind==='ribbonDraw') { ribbonDrawEnd(dr); return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove' || dr.kind==='maniGrow' || dr.kind==='maniPopMove' || dr.kind==='ribbonSpin') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
+  if (dr.kind==='gridTwo') { s.drag = dr; gridTwoEnd(s,null); return; }
+  if (dr.kind==='gridTwoHold') { const two = sources.find(o=>o.drag?.kind==='gridTwo' && o.drag.other===s); if (two) gridTwoEnd(two,two); return; }
   if (dr.kind==='gridResize') { gridPlacedAt = 0; tablePlaneLock = true; return; }
   if (dr.kind==='gridExtrude' || dr.kind==='gridCell') return;   // a resized grid stays where the user left it
   state.dioI = dr.i; state.dioJ = dr.j; state.dioN = dr.n; layoutDeskItem(dr.i,dr.j,dr.n,false);
+  if ((dr.kind==='dioMove' || dr.kind==='dioGrab') && dr.wasSel && dr.i===dr.i0 && dr.j===dr.j0 && performance.now()-dr.t0<450) showDioTools(false);
 }
 const handLocal = new THREE.Vector3();
 function updateDesk(t,frame){
@@ -1841,6 +1957,8 @@ function updateDesk(t,frame){
     if (s.drag.kind==='dioPinchScale') { pinchScaleUpdate(s); continue; }
     if (s.drag.kind==='maniScale') { maniScaleUpdate(s); continue; }
     if (s.drag.kind==='gridMove') { if (!s.controller?.visible) dragEnd(s); continue; }
+    if (s.drag.kind==='gridTwo') { if (!s.controller?.visible) dragEnd(s); else gridTwoUpdate(s); continue; }
+    if (s.drag.kind==='gridTwoHold') { if (!s.controller?.visible) dragEnd(s); continue; }
     if (s.controller) { if (!s.controller.visible) { dragEnd(s); continue; }
       rO.setFromMatrixPosition(s.controller.matrixWorld); rD.set(0,0,-1).transformDirection(s.controller.matrixWorld); dragUpdate(s,rO.clone(),rD.clone()); }
     else if (s.ray) dragUpdate(s,s.ray.o,s.ray.d);
@@ -2629,7 +2747,7 @@ function place(){
 const raycaster = new THREE.Raycaster();
 const holePanels = new Set(['board','drop CHARTS','diorama card']);
 function targets(){ const list = []; for (const p of panels) if (p.mesh.visible && p.mesh.parent.visible) list.push(p.mesh);
-  if (state.dioOnTable && dio.visible) { list.push(itemPad,rotRing.userData.hit); for (const c of corners) list.push(c.hit); }
+  if (state.dioOnTable && dio.visible) list.push(itemPad);
   if (deskGrid.visible && !state.gridOff) { list.push(...gridFrame); for (const n of sizeNodes) list.push(n.hit);
     if (state.gridEdit) { list.push(cellPad,...blockHits); if (extHandle.visible) list.push(extHandle.userData.hit); } }
   if (dio.visible && (board.visible || state.dioOnTable)) for (const m of marbles) list.push(m.hit);
@@ -2690,6 +2808,7 @@ function setHover(source,hit){
   for (const p of new Set([prev?.panel,next?.panel].filter(Boolean))) { p.hover = sources.map(s=>s.hover).find(h=>h?.panel===p)?.id ?? null; p.dirty = true; }
 }
 function press(source,hit){
+  if (gridTwoStart(source)) return;                                      // second hand while the first holds the grid
   if (roomHandGrab(source)) return;                                      // pinch right at a coin in the room
   if (source.hand && maniScaleStart(source)) return;                      // second hand while the first turns the manifold
   if (source.hand && state.dioOnTable && !state.hidden && pinchScaleStart(source)) return;    // second hand while the first holds
@@ -2714,7 +2833,7 @@ function press(source,hit){
 }
 function release(source,hit){
   if (source.drag) { dragEnd(source); return; }
-  if (source.grab) { scene.attach(boardRoot); const e = new THREE.Euler().setFromQuaternion(boardRoot.quaternion,'YXZ'); boardRoot.rotation.set(e.x,e.y,0,'YXZ'); source.grab = false; }
+  if (source.grab) { scene.attach(boardRoot); const e = new THREE.Euler().setFromQuaternion(boardRoot.quaternion,'YXZ'); boardRoot.rotation.set(e.x,e.y,0,'YXZ'); source.grab = false; source.gridGrab = false; }
   const pr = source.pressed; source.pressed = null;
   if (!pr) return;
   pr.panel.press = null; pr.panel.dirty = true;
