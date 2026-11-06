@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '44';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '45';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -238,8 +238,8 @@ const horizonP = panel({name:'horizon ring',x:73.5,y:567.5,w:273,h:229,z:.006,fp
     if (!off) p.region(h.id,x-24,y-24,48,48,()=>setHorizon(h.id));
   }
 }});
-function calendarNumber(ctx,cx,cy,size,color){ // "12" inside the calendar symbol (T1/T2/T3 still open)
-  text(ctx,'12',cx,cy+size*.1,{font:`800 ${size*.34}px Manrope`,color,align:'center'});
+function calendarNumber(ctx,cx,cy,size,color){ // "7" inside the calendar symbol: T1 (Manrope ExtraBold), chosen 6 Nov
+  text(ctx,'7',cx,cy+size*.1,{font:`800 ${size*.44}px Manrope`,color,align:'center'});
 }
 
 // ---------------------------------------------------------------- 02 · CHARTS
