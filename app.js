@@ -9,7 +9,7 @@ import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {XRHandModelFactory} from 'three/addons/webxr/XRHandModelFactory.js';
 
-const BUILD = '45';               // shown in the status line, so a cached old version is easy to spot
+const BUILD = '46';               // shown in the status line, so a cached old version is easy to spot
 const S = 0.001;                 // metres per dp
 const BW = 1520, BH = 1005;      // landing board size (dp)
 const C = {
@@ -1761,6 +1761,7 @@ function dragUpdate(s,o,d){
   if (s.drag.kind==='ribbonDraw') { ribbonDrawUpdate(s,o,d); return; }
   if (s.drag.kind==='maniGrow') { maniGrowUpdate(s,o,d); return; }
   if (s.drag.kind==='maniPopMove') { popMoveUpdate(s,o,d); return; }
+  if (s.drag.kind==='maniCutPull') { cutPullUpdate(s,o,d); return; }
   if (s.drag.kind==='gridResize') { gridResizeUpdate(s,o,d); return; }
   if (s.drag.kind==='gridExtrude') { extrudeUpdate(s,o,d); return; }
   if (s.drag.kind==='gridCell') { cellBrush(s.drag,cellUnder(o,d)); return; }
@@ -1923,6 +1924,7 @@ function dragEnd(s){
   if (dr.kind==='stick') { stickP.dirty = true; return; }
   if (dr.kind==='ribbonNode') { dr.node.dragged=false; ribbonSaveEdits(); return; }
   if (dr.kind==='ribbonDraw') { ribbonDrawEnd(dr); return; }
+  if (dr.kind==='maniCutPull') { cutPullEnd(); return; }
   if (dr.kind==='dioRotate' || dr.kind==='dioPinchScale' || dr.kind==='maniSpin' || dr.kind==='maniScale' || dr.kind==='maniMove' || dr.kind==='maniGrow' || dr.kind==='maniPopMove' || dr.kind==='ribbonSpin') return;
   if (dr.kind==='gridMove') { gridGrabEnd(s,dr); return; }
   if (dr.kind==='gridTwo') { s.drag = dr; gridTwoEnd(s,null); return; }
@@ -2364,23 +2366,23 @@ function maniToRoom(){
   if (!MANI_DATA || state.maniRoom) return;
   if (state.ribbonRoom) ribbonFromRoom();
   maniRoomFrom = {table:state.maniOnTable, zoom:state.maniZoom||1, yaw:state.maniYaw||0, tilt:state.maniTilt};
-  state.maniOnTable = false; state.maniRoom = true; maniInfo(null);
+  state.maniOnTable = false; state.maniRoom = true; maniInfo(null); cutClear();
   (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(maniRoomAt); maniRoomAt.y = 0;
   scene.add(mani); mani.rotation.set(0,0,0); state.maniTilt = 0; state.maniZoom = MANI.zoomRoom;
   setManiClip(false); applyManiPose(); dioCardP.dirty = true; maniCapP.dirty = true;
   toast('Inside the manifold · walk through it, touch a currency or its ribbon');
 }
 function maniFromRoom(){
-  if (!state.maniRoom) return; state.maniRoom = false; maniInfo(null);
+  if (!state.maniRoom) return; state.maniRoom = false; maniInfo(null); cutClear();
   const f = maniRoomFrom || {table:false,zoom:1,yaw:0,tilt:null}; state.maniZoom = f.zoom; state.maniYaw = f.yaw; state.maniTilt = f.tilt;
   f.table ? maniToTable() : maniToWindow();
 }
 function maniToTable(){
-  state.maniOnTable = true; maniInfo(null); maniDesk.add(mani); mani.rotation.set(0,0,0); state.maniTilt = 0;
+  state.maniOnTable = true; maniInfo(null); cutClear(); maniDesk.add(mani); mani.rotation.set(0,0,0); state.maniTilt = 0;
   layoutManiDesk(); setManiClip(false); applyManiPose(); dioCardP.dirty = true; maniCapP.dirty = true;
 }
 function maniToWindow(){
-  state.maniOnTable = false; maniInfo(null); board.add(mani); mani.position.copy(maniWinPos); mani.rotation.set(0,0,0); state.maniTilt = null;
+  state.maniOnTable = false; maniInfo(null); cutClear(); board.add(mani); mani.position.copy(maniWinPos); mani.rotation.set(0,0,0); state.maniTilt = null;
   state.maniZoom = Math.min(state.maniZoom||1,MANI.zoom[1]);                // back in the window: its own size limit
   setManiClip(true); applyManiPose(); dioCardP.dirty = true; maniCapP.dirty = true;
 }
@@ -2502,7 +2504,7 @@ const L0 = new THREE.Vector3(), L1 = new THREE.Vector3(), L2 = new THREE.Vector3
 const anchorOf = (o,out) => o.head ? o.head.getWorldPosition(out) : maniTurn.localToWorld(out.copy(o.local));
 function updateManifold(t,visible){
   mani.visible = visible;
-  if (!visible) { if (maniOpen) maniInfo(null); return; }
+  if (!visible) { if (maniOpen) maniInfo(null); if (cut) cutClear(); return; }
   if (MANI_DATA) { const L = maniLevelFor(maniWorldR()); if (L!==maniLevel) setManiLevel(L); }
   trailUni.uTime.value = t;
   for (const tr of maniTrails) { const on = tr.cur===state.currency ? 1 : 0; tr.mat.uniforms.uSel.value += (on-tr.mat.uniforms.uSel.value)*.15;
@@ -2512,7 +2514,7 @@ function updateManifold(t,visible){
     tr.glow.material.color.copy(WHITE).lerp(PINK,sel*.6); tr.glow.material.opacity = MANI_TRAIL.glowA+(MANI_TRAIL.glowSel-MANI_TRAIL.glowA)*sel; }
   if (maniLevel>=0) { const z = state.maniZoom||1, ws = (z<=1 ? z : Math.pow(z,MANI.markExp))*(maniOut() ? 1 : (boardRoot.scale.x||1));   // dot sizes follow the markers
     maniLevels[maniLevel].beads.material.size = MANI.beadSize*ws; for (const tr of maniTrails) tr.beads.material.size = MANI_TRAIL.beadSize*ws; }
-  updateManiLinks(t);
+  updateManiLinks(t); updateCut(t);
   if (growNodes.visible) for (const n of growList) n.glow.material.opacity = .5+.3*Math.sin(t*2.2+n.a);
   if (maniOpen) {
     const el = (performance.now()-maniOpenAt)/1000, grow = Math.min(1,el/MANI_POP.lineT), ease = 1-(1-grow)**3;
@@ -2540,6 +2542,195 @@ function updateManifold(t,visible){
     pa.needsUpdate = true; leadLine.geometry.setDrawRange(0,Math.max(2,Math.ceil(ease*N)+1));
     const op = Math.max(0,Math.min(1,(el-MANI_POP.lineT)/MANI_POP.openT));   // the window opens once the line has arrived
     maniPopP.mesh.visible = op>0; maniPopP.mesh.scale.setScalar(.75+.25*(1-(1-op)**3));
+  }
+}
+
+// ---- Manifold section (build 46, session 25). A ready-made cut along the line the guide narrates — until the guide
+// exists, the line runs from the deepest pit through the highest peak. No free drawing.
+//   1 · the line appears on the terrain, dashed fxlab pink
+//   2 · preview: a thin vertical light plane cuts the terrain along it, the profile turns solid pink
+//   3 · pull: pinch the plane and lift (gesture), or tap the extract symbol at the line's end (button)
+//   4 · the section rises along the terrain's up axis and opens as a panel over the cut, always turned to the user and
+//       tied to the cut by a hairline. TIME mode: 5H in front (this terrain, old data), 1D and 1W extruded behind it —
+//       those two are SIMULATED (smoothed copies of the 5H profile) until per-horizon terrains exist.
+// The mode pill (TIME · COMPARE · 2ND DATA) slides like the window tabs; only TIME works in this build.
+const CUT = {samples:96, dash:.006, gap:.004, planeA:.07, edgeA:.3, previewDelay:1.1,
+             pull:{win:.06,table:.08,room:.3}, pullDone:.5, lift:{win:.035,table:.07,room:.3}, liftT:.3, openT:.6,
+             rise:{win:.03,table:.14,room:.5}, scale:{win:.85,table:1,room:2.4}, w:300, h:210,
+             plot:{x0:22,x1:236,top:74,bot:180}, layerZ:.012, shift:[10,12], sim:[[5,.85],[13,.65]]};
+const CUT_LAYERS = ['5H','1D','1W'], CUT_MODES = [['time','TIME'],['compare','COMPARE'],['second','2ND DATA']];
+let cut = null;
+const cutGroup = new THREE.Group(); cutGroup.name = 'manifold section on terrain'; maniTurn.add(cutGroup);
+const cutClipMat = m => { m.clippingPlanes = maniOut() ? null : winPlanes; return m; };
+function cutLine(){
+  maniLevels[0] ||= buildManiLevel(0);
+  const pins = maniLevels[0].pins, peak = pins.find(p=>p.kind==='peak'), pit = pins.find(p=>p.kind==='pit');
+  if (!peak || !pit) return null;
+  let dx = peak.x-pit.x, dz = peak.z-pit.z; const L = Math.hypot(dx,dz)||1; dx /= L; dz /= L;
+  const on = s => !!maniEstimate(pit.x+dx*s,pit.z+dz*s);
+  let s0 = 0, s1 = L; while (s0>-2*MANI.extent && on(s0-.05)) s0 -= .05; while (s1<2*MANI.extent && on(s1+.05)) s1 += .05;
+  const pts = [];
+  for (let k=0;k<=CUT.samples;k++) { const s = s0+(s1-s0)*k/CUT.samples, x = pit.x+dx*s, z = pit.z+dz*s, e = maniEstimate(x,z);
+    if (e) pts.push({x,z,v:e.mean}); }
+  return pts.length>4 ? pts : null;
+}
+const cutLocal = (p,out=new THREE.Vector3()) => out.set(p.x*MANI.radius/MANI.extent,p.v*MANI.height+.0015,p.z*MANI.radius/MANI.extent);
+function cutSmooth(vals,r){ return vals.map((_,i)=>{ let s = 0, n = 0; for (let j=Math.max(0,i-r);j<=Math.min(vals.length-1,i+r);j++) { s += vals[j]; n++; } return s/n; }); }
+function cutToggle(){ if (cut) { cutClear(); return; } cutStart(); }
+function cutStart(){
+  if (!MANI_DATA) return; maniInfo(null);
+  const pts = cutLine(); if (!pts) { toast('No section line found on this terrain'); return; }
+  cut = {stage:'line', t0:performance.now(), pts, lift:0, liftTo:0, mode:'time'};
+  const loc = pts.map(p=>cutLocal(p));
+  // 1 · dashed line on the terrain
+  const dashed = new THREE.Line(new THREE.BufferGeometry().setFromPoints(loc),
+    cutClipMat(new THREE.LineDashedMaterial({color:C.pink,dashSize:CUT.dash,gapSize:CUT.gap,transparent:true,opacity:.95,depthWrite:false,toneMapped:false})));
+  dashed.computeLineDistances(); dashed.renderOrder = 6; dashed.frustumCulled = false;
+  // 2 · solid profile + light plane
+  const solid = new THREE.Line(new THREE.BufferGeometry().setFromPoints(loc),
+    cutClipMat(new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:1,depthWrite:false,toneMapped:false})));
+  solid.renderOrder = 6; solid.frustumCulled = false; solid.visible = false;
+  const a = loc[0], b = loc[loc.length-1], lo = (mani.userData.lo ?? -1)*MANI.height-.012, hi = (mani.userData.hi ?? 1)*MANI.height+.035;
+  const quad = [a.x,lo,a.z, b.x,lo,b.z, b.x,hi,b.z, a.x,hi,a.z];
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position',new THREE.Float32BufferAttribute(quad,3)); pg.setIndex([0,1,2,0,2,3]);
+  const plane = new THREE.Mesh(pg,cutClipMat(new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:CUT.planeA,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})));
+  plane.renderOrder = 5;
+  const edge = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([0,1,2,3].map(i=>new THREE.Vector3(quad[i*3],quad[i*3+1],quad[i*3+2]))),
+    cutClipMat(new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:CUT.edgeA,depthWrite:false,toneMapped:false})));
+  const hit = new THREE.Mesh(pg,new THREE.MeshBasicMaterial({visible:false,side:THREE.DoubleSide})); hit.userData.kind = 'maniCut';
+  const planeG = new THREE.Group(); planeG.add(plane,edge,hit); planeG.visible = false;
+  // 3 · the profile that rises while it is pulled
+  const lifted = new THREE.Line(new THREE.BufferGeometry().setFromPoints(loc),
+    cutClipMat(new THREE.LineBasicMaterial({color:C.pink,transparent:true,opacity:1,depthWrite:false,toneMapped:false})));
+  lifted.renderOrder = 7; lifted.frustumCulled = false; lifted.visible = false;
+  cutGroup.add(dashed,solid,planeG,lifted);
+  Object.assign(cut,{dashed,solid,planeG,hit,lifted,loc});
+  // 4 · data for the panel: 5H = this profile; 1D, 1W simulated (smoothed, flattened copies)
+  const v5 = pts.map(p=>p.v); cut.layers = [v5,...CUT.sim.map(([r,f])=>cutSmooth(v5,r).map(v=>v*f))];
+  const all = cut.layers.flat(); cut.vmin = Math.min(...all,0); cut.vmax = Math.max(...all,0);
+  buildCutLayers(); maniCapP.dirty = true;
+  toast('Section · the guide\'s line (for now: deepest pit → highest peak)',2600);
+}
+function cutClear(){
+  if (!cut) return;
+  for (const o of [cut.dashed,cut.solid,cut.planeG,cut.lifted]) { cutGroup.remove(o); o.traverse(c=>{ c.geometry?.dispose(); }); }
+  cut = null; cutBtnP.mesh.visible = cutPanelP.mesh.visible = cutTether.visible = false;
+  for (const l of cutLayerLines) l.visible = false; cutRibs.visible = false; maniCapP.dirty = true;
+}
+// extract symbol at the line's end (button alternative to the gesture)
+const cutBtnP = panel({name:'section extract',x:0,y:0,w:44,h:44,margin:8,z:.02,draw(ctx,p){
+  const hot = p.hover==='out' || p.press==='out';
+  ctx.beginPath(); ctx.arc(22,22,20,0,Math.PI*2); ctx.fillStyle = hot ? 'rgba(226,168,238,.35)' : 'rgba(30,27,58,.6)'; ctx.fill();
+  ctx.lineWidth = 1.2; ctx.strokeStyle = hot ? C.pink : 'rgba(255,255,255,.7)'; ctx.stroke();
+  drawIcon(ctx,'arrow-line-up',hot?'#ffffff':C.pink,22,22,22);
+  p.region('out',0,0,44,44,()=>cutOut());
+}});
+cutBtnP.mesh.visible = false;
+// the section panel
+const cutPanelP = panel({name:'manifold section',x:0,y:0,w:CUT.w,h:CUT.h,margin:12,z:.02,draw(ctx,p){
+  if (!cut) return; const W = CUT.w, H = CUT.h, P = CUT.plot;
+  rr(ctx,0,0,W,H,18); ctx.fillStyle = 'rgba(30,27,58,.55)'; ctx.fill();
+  rr(ctx,.5,.5,W-1,H-1,18); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.stroke();
+  drawIcon(ctx,'scissors',C.ink,24,24,16);
+  text(ctx,'SECTION',38,25,{font:'800 13px Manrope',color:C.ink,ls:'.5px'});
+  const hot = p.hover==='close'; drawIcon(ctx,'x-circle',hot?C.pink:C.muted,W-24,24,20); p.region('close',W-48,0,48,48,()=>cutClear());
+  // mode pill (only TIME in this build)
+  const px = 18, py = 40, pw = W-36, ph = 22, cw = pw/3;
+  rr(ctx,px,py,pw,ph,11); ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fill();
+  const sel = CUT_MODES.findIndex(m=>m[0]===cut.mode);
+  rr(ctx,px+2+sel*cw,py+2,cw-4,ph-4,9); ctx.fillStyle = 'rgba(226,168,238,.85)'; ctx.fill();
+  CUT_MODES.forEach(([id,label],i)=>{ text(ctx,label,px+cw*i+cw/2,py+ph/2+.5,{font:'800 10px Manrope',color:i===sel?C.dark:(p.hover===id?C.ink:C.muted),align:'center',ls:'.5px'});
+    p.region(id,px+cw*i,py,cw,ph,()=>{ if (id!=='time') toast(`${label} mode comes in a later build · TIME only for now`); }); });
+  // zero line (front layer's frame) and layer labels at their right ends
+  const y0 = cutY(0); ctx.setLineDash([3,4]); ctx.beginPath(); ctx.moveTo(P.x0,y0); ctx.lineTo(P.x1,y0); ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+  text(ctx,'0',P.x0-10,y0,{font:'400 10px "Kode Mono"',color:C.dim,align:'center'});
+  // labels at each layer's right end, pushed apart so they never sit on top of each other (back layers above)
+  const ys = CUT_LAYERS.map((_,k)=>{ const v = cut.layers[k]; return cutY(v[v.length-1])-CUT.shift[1]*k; });
+  for (let k=1;k<ys.length;k++) ys[k] = Math.min(ys[k],ys[k-1]-13);
+  CUT_LAYERS.forEach((lb,k)=>text(ctx,lb,P.x1+CUT.shift[0]*2+12,ys[k],{font:'600 11px "Kode Mono"',color:k?C.muted:C.pink}));
+  text(ctx,'5H · OLD DATA   ·   1D / 1W SIMULATED',W/2,H-14,{font:'400 10px "Kode Mono"',color:C.dim,align:'center'});
+}});
+cutPanelP.mesh.visible = false;
+const cutY = v => { const P = CUT.plot; return P.bot-(v-cut.vmin)/((cut.vmax-cut.vmin)||1)*(P.bot-P.top-CUT.shift[1]*2); };
+// the extruded layers: hairlines in front of the panel, 5H nearest the user, 1D and 1W further back (and a little up-right)
+const cutLayerLines = [0,1,2].map(k=>{ const l = new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:k?'#ffffff':C.pink,transparent:true,opacity:[1,.6,.35][k],depthWrite:false,toneMapped:false}));
+  l.renderOrder = 30; l.frustumCulled = false; l.visible = false; cutPanelP.mesh.add(l); return l; });
+const cutRibs = new THREE.LineSegments(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:.16,depthWrite:false,toneMapped:false}));
+cutRibs.renderOrder = 29; cutRibs.frustumCulled = false; cutRibs.visible = false; cutPanelP.mesh.add(cutRibs);
+function buildCutLayers(){
+  const P = CUT.plot, n = cut.pts.length, pos = [];
+  const at = (k,i) => { const x = P.x0+(P.x1-P.x0)*i/(n-1)+CUT.shift[0]*k, y = cutY(cut.layers[k][i])-CUT.shift[1]*k;
+    return new THREE.Vector3((x-CUT.w/2)*S,(CUT.h/2-y)*S,.004+(2-k)*CUT.layerZ); };
+  cutLayerLines.forEach((l,k)=>{ l.geometry.dispose(); l.geometry = new THREE.BufferGeometry().setFromPoints(Array.from({length:n},(_,i)=>at(k,i))); });
+  for (let i=0;i<n;i+=6) for (let k=0;k<2;k++) { const a = at(k,i), b = at(k+1,i); pos.push(a.x,a.y,a.z,b.x,b.y,b.z); }
+  cutRibs.geometry.dispose(); cutRibs.geometry = new THREE.BufferGeometry(); cutRibs.geometry.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+}
+const cutTether = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({color:'#ffffff',transparent:true,opacity:.6,depthWrite:false,toneMapped:false}));
+cutTether.frustumCulled = false; cutTether.visible = false; cutTether.renderOrder = 5; scene.add(cutTether);
+const cutKey = () => state.maniRoom ? 'room' : state.maniOnTable ? 'table' : 'win';
+// 3 · pulling: a vertical plane through the pinch, facing the viewer; lifting the hand raises the profile
+function cutPullStart(s,hit){
+  if (!cut || cut.stage!=='preview') return;
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera, n = new THREE.Vector3(); cam.getWorldPosition(n); n.sub(hit.point); n.y = 0;
+  if (n.lengthSq()<1e-6) n.set(0,0,1); n.normalize();
+  s.drag = {kind:'maniCutPull',plane:new THREE.Plane().setFromNormalAndCoplanarPoint(n,hit.point),y0:hit.point.y};
+  cut.stage = 'pulling';
+}
+const _cp = new THREE.Vector3();
+function cutPullUpdate(s,o,d){
+  if (!cut) { s.drag = null; return; }
+  raycaster.set(o,d); if (!raycaster.ray.intersectPlane(s.drag.plane,_cp)) return;
+  const need = CUT.pull[cutKey()]*(cutKey()==='win' ? (boardRoot.scale.x||1) : 1);
+  cut.lift = cut.liftTo = Math.max(0,Math.min(1,(_cp.y-s.drag.y0)/need));
+}
+function cutPullEnd(){ if (!cut) return; if (cut.lift>=CUT.pullDone) cutOut(); else { cut.stage = 'preview'; cut.liftTo = 0; } }
+function cutOut(){
+  if (!cut || cut.stage==='out' || cut.stage==='rising') return;
+  cut.stage = 'rising'; cut.liftTo = 1; cut.tRise = performance.now(); cutBtnP.mesh.visible = false;
+}
+const _cw = new THREE.Vector3(), _cs = new THREE.Vector3(), _cc = new THREE.Vector3(), _cb = new THREE.Vector3();
+function placeCutPanel(mesh,anchorWorld,rise,lift){
+  const out = maniOut(), home = out ? scene : board; if (mesh.parent!==home) home.add(mesh);
+  if (out) { mesh.position.copy(anchorWorld); mesh.position.y += rise;
+    const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera; cam.getWorldPosition(_cc); _cc.y = mesh.position.y; mesh.lookAt(_cc); }
+  else { _cw.copy(anchorWorld); board.worldToLocal(_cw); mesh.rotation.set(0,0,0);
+    const top = (BH/2-WIN.y)*S-.07;                                        // stays below the window's tab bar
+    mesh.position.set(_cw.x,Math.min(top-lift,_cw.y+rise),.02); }
+}
+function updateCut(t){
+  if (!cut) return;
+  const now = performance.now(), key = cutKey();
+  if (cut.stage==='line' && now-cut.t0>CUT.previewDelay*1000) { cut.stage = 'preview'; }
+  const preview = cut.stage!=='line';
+  cut.dashed.visible = !preview; cut.solid.visible = preview; cut.planeG.visible = cut.stage==='preview' || cut.stage==='pulling';
+  if (cut.stage==='out') cut.solid.material.opacity = .45;
+  // lift: the pulled profile rises along the terrain's up axis (local y), then the panel takes over
+  cut.lift += (cut.liftTo-cut.lift)*(cut.stage==='pulling' ? 1 : .18);
+  maniTurn.getWorldScale(_cs);
+  const liftLocal = CUT.lift[key]/Math.max(_cs.y,1e-4);                // world metres → the terrain's own units
+  cut.lifted.visible = cut.lift>.01 && cut.stage!=='out'; cut.lifted.position.y = cut.lift*liftLocal;
+  if (cut.stage==='rising' && now-cut.tRise>CUT.liftT*1000) { cut.stage = 'out'; cut.tOut = now; cutPanelP.dirty = true; }
+  // the anchor: middle of the cut on the terrain, in the room
+  const mid = cut.loc[Math.floor(cut.loc.length/2)]; maniTurn.localToWorld(_cw.copy(mid)); const anchor = _cw.clone();
+  // extract symbol at the higher end of the line, just above it
+  cutBtnP.mesh.visible = cut.stage==='preview';
+  if (cutBtnP.mesh.visible) { const end = cut.loc[cut.loc.length-1]; maniTurn.localToWorld(_cb.copy(end));
+    const rise = {win:.02,table:.03,room:.12}[key]; cutBtnP.mesh.scale.setScalar(CUT.scale[key]);
+    placeCutPanel(cutBtnP.mesh,_cb,rise,0); }
+  // 4 · panel over the cut, turned to the user, tied by a hairline
+  const open = cut.stage==='out';
+  cutPanelP.mesh.visible = open; cutTether.visible = open; cutRibs.visible = open;
+  for (const l of cutLayerLines) l.visible = open;
+  if (open) {
+    const el = (now-cut.tOut)/1000, op = Math.min(1,el/CUT.openT), ease = 1-(1-op)**3, sc = CUT.scale[key];
+    const half = (CUT.h/2+12)*S*sc;
+    cutPanelP.mesh.scale.setScalar(sc*(.8+.2*ease));
+    placeCutPanel(cutPanelP.mesh,anchor,CUT.rise[key]+half,half);
+    const n = cut.pts.length; cutLayerLines.forEach((l,k)=>l.geometry.setDrawRange(0,Math.max(2,Math.ceil(n*Math.min(1,Math.max(0,ease*1.4-k*.2))))));
+    cutRibs.material.opacity = .16*ease;
+    cutPanelP.mesh.localToWorld(_cb.set(0,-CUT.h/2*S,0));
+    const pa = cutTether.geometry.attributes.position; pa.setXYZ(0,anchor.x,anchor.y,anchor.z); pa.setXYZ(1,_cb.x,_cb.y,_cb.z); pa.needsUpdate = true;
   }
 }
 
@@ -2714,9 +2905,15 @@ const ribbonCapP = panel({name:'ribbon caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:47
 rebuildRibbon(); if(state.ribbonRoom){ state.ribbonRoom=false; ribbonToRoom(); }
 
 // a quiet caption at the window's bottom-left: this is old data
-const maniCapP = panel({name:'manifold caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:430,h:26,margin:8,z:.012,draw(ctx){
+const maniCapP = panel({name:'manifold caption',x:WIN.x+14,y:WIN.y+WIN.h-40,w:470,h:26,margin:8,z:.012,draw(ctx,p){
   rr(ctx,0,0,430,26,13); ctx.fillStyle = 'rgba(35,32,66,.85)'; ctx.fill();
   text(ctx,(state.maniRoom?'AROUND YOU · ':state.maniOnTable?'ON THE TABLE · ':'')+'CONCEPT · OLD DATA · 5H · 03 SEP – 19 OCT 2026',215,14,{font:'400 11px "Kode Mono"',color:C.muted,align:'center'});
+  // section symbol (stand-in for the guide until it exists): shows / clears the ready-made cut
+  const on = !!cut, hot = p.hover==='cut';
+  ctx.beginPath(); ctx.arc(457,13,13,0,Math.PI*2); ctx.fillStyle = on ? 'rgba(226,168,238,.85)' : 'rgba(35,32,66,.85)'; ctx.fill();
+  if (hot && !on) { ctx.lineWidth = 1; ctx.strokeStyle = C.pink; ctx.stroke(); }
+  drawIcon(ctx,'scissors',on?C.dark:(hot?C.pink:C.muted),457,13,15);
+  p.region('cut',440,0,30,26,()=>cutToggle());
 }});
 maniCapP.mesh.visible = false;
 if (MANI_DATA) setManiLevel(0);
@@ -2754,6 +2951,7 @@ function targets(){ const list = []; for (const p of panels) if (p.mesh.visible 
   if (orbitRoot.visible && state.roomOn) for (const rc of roomCoins) if (!rc.held) list.push(rc.hit);
   if (mani.visible && (board.visible || maniOut()) && mani.userData.grab) { if (!state.maniRoom) list.push(mani.userData.grab); for (const q of maniPins) list.push(q.hit);
     for (const tr of maniTrails) list.push(tr.hit,tr.ribbon);
+    if (cut && cut.stage==='preview') list.push(cut.hit);
     if (maniPopP.mesh.visible && popBar.visible) list.push(popBar.userData.hit); if (state.maniOnTable) { list.push(...maniPads); for (const n of growList) list.push(n.hit); } }
   if (ribbon.visible && ribbonHits && (board.visible || state.ribbonRoom)) list.push(ribbonGrab,ribbonHits);
   return list; }
@@ -2788,7 +2986,7 @@ function pickRaw(origin,dir){
     if (h.object.userData.roomCoin) return {roomCoin:h.object.userData.roomCoin,point:h.point,distance:h.distance};
     if (h.object.userData.currency) return {currency:h.object.userData.currency,point:h.point,distance:h.distance};
     if (h.object.userData.kind==='maniSpin') {                           // a pin, a currency or its ribbon inside the grab volume wins
-      for (const k of ['maniPin','maniUnit','maniTrail']) { const q = hits.find(o=>o.object.userData.kind===k);
+      for (const k of ['maniPin','maniUnit','maniTrail','maniCut']) { const q = hits.find(o=>o.object.userData.kind===k);
         if (q) return {kind:k,object:q.object,point:q.point,distance:q.distance}; } }
     if (h.object.userData.kind==='ribbonSpin') { const q=hits.find(o=>o.object.userData.kind==='ribbonPoint');
       if(q)return {kind:'ribbonPoint',object:q.object,instanceId:q.instanceId,point:q.point,distance:q.distance}; }
@@ -2821,6 +3019,7 @@ function press(source,hit){
   if (hit.kind==='maniUnit' || hit.kind==='maniTrail') { maniTouch(hit); return; }
   if (hit.kind==='maniGrow') { maniGrowStart(source,hit); return; }
   if (hit.kind==='maniPopMove') { popMoveStart(source,hit); return; }
+  if (hit.kind==='maniCut') { cutPullStart(source,hit); return; }
   if (hit.kind==='maniSpin') { maniSpinStart(source,hit.point); return; }
   if (hit.kind==='ribbonPoint') { ribbonSelect(hit); if(state.ribbonMode==='sculpt')ribbonNodeStart(source,ribbonSelected); else if(state.ribbonMode==='draw')ribbonDrawStart(source,ribbonSelected); return; }
   if (hit.kind==='ribbonSpin') { if(state.ribbonMode==='draw')ribbonDrawStart(source,ribbonSelected); else ribbonSpinStart(source,hit.point); return; }
